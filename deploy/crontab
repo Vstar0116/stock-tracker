@@ -1,0 +1,11 @@
+# Stock Tracker daily pipeline.
+#
+# Install on the deployment host with:
+#   crontab deploy/crontab
+# (edit the two paths below first, or export them and use envsubst / a small
+# wrapper script -- crontab itself doesn't expand variables)
+#
+# Runs weekdays at 19:00 IST (13:30 UTC) -- after market close (15:30 IST)
+# and after NSE/BSE have typically published the day's bhavcopy. Safe to
+# re-run manually any time: every step in daily_pipeline.py is idempotent.
+30 13 * * 1-5 cd /path/to/stock-application && /path/to/stock-application/.venv/bin/python -m app.jobs.daily_pipeline >> /var/log/stock-pipeline.log 2>&1

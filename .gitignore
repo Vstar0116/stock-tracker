@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+*.egg-info/
+.pytest_cache/
+
+# Claude Code tooling state -- not part of the application
+.claude/
+.agents/
+skills-lock.json
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store

@@ -164,3 +164,22 @@ export interface StatusOut {
   last_pipeline_run_at: string | null
   last_pipeline_status: string | null
 }
+
+export interface JobRunOut {
+  job_name: string
+  status: string
+  started_at: string
+  finished_at: string | null
+  duration_seconds: number | null
+  rows_processed: number | null
+}
+
+export interface StatusDetailOut extends StatusOut {
+  last_successful_pipeline_run_at: string | null
+  instrument_count: number
+  daily_price_count: number
+  indicator_count: number
+  recent_job_runs: JobRunOut[]
+  nl_screen_configured: boolean
+  nl_screen_reachable: boolean
+}

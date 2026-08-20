@@ -1,0 +1,12 @@
+[Unit]
+Description=Stock Tracker pipeline healthcheck (alerts if the pipeline has gone stale)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/path/to/stock-application
+ExecStart=/path/to/stock-application/.venv/bin/python -m app.jobs.healthcheck
+# EnvironmentFile=/path/to/stock-application/.env
+StandardOutput=journal
+StandardError=journal

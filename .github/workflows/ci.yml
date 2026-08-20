@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend (migrate + test + lint)
+    runs-on: ubuntu-latest
+
+    # Same major.minor as docker-compose.yml's db service -- keep these in sync.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: stock
+          POSTGRES_PASSWORD: stock
+          POSTGRES_DB: stock
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U stock -d stock"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+psycopg2://stock:stock@localhost:5432/stock
+      # Throwaway, CI-only -- app/config.py refuses to start under 32 bytes,
+      # so this exists purely to clear that bar. Never used outside this job;
+      # not a real credential, so it doesn't need to be a repo secret.
+      JWT_SECRET_KEY: ci-only-throwaway-secret-do-not-use-in-any-real-deployment
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Floor declared in pyproject.toml's requires-python -- nothing pins
+          # a specific deploy version the way docker-compose.yml does for
+          # Postgres, so this tests the minimum we claim to support.
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Run migrations
+        run: alembic upgrade head
+
+      - name: Run tests
+        run: pytest
+
+  frontend:
+    name: Frontend (build + lint)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint (oxlint)
+        run: npm run lint
+
+      - name: Build (tsc -b + vite build -- fails on TypeScript errors)
+        run: npm run build

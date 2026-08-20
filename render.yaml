@@ -1,0 +1,154 @@
+# Render Blueprint -- https://render.com/docs/blueprint-spec
+# Field names match Render's spec at time of writing; if `render blueprint`
+# rejects this, check that reference for renamed keys (Render has renamed
+# `env:` to `runtime:` for Docker services before, and moved Postgres from
+# named instance types like "starter" to separate plan/diskSizeGB "flexible
+# plans" -- `plan: starter` below is a *web/cron compute* plan, current as
+# of writing; it is NOT valid on the `databases:` block, which uses the
+# newer basic-*/pro-* names instead). `dockerCommand` on the cron services
+# below matches the dashboard's "Docker Command" field for Docker-based
+# cron jobs; double-check that name in the reference above before applying
+# if this file is more than a few months old.
+#
+# One Postgres, one web service (API), three cron jobs (daily pipeline,
+# hourly healthcheck, off-host backup -- see DEPLOYMENT.md "Scheduling" and
+# "Backups & recovery"), one static site (frontend). All in Singapore -- the
+# closest Render region to India, where every user and both exchanges are.
+
+databases:
+  - name: stock-tracker-db
+    plan: basic-1gb
+    diskSizeGB: 10 # observed dev data: ~3.9M rows each in daily_prices/indicators, low GBs -- raise if usage grows
+    region: singapore
+    # Pinned to match docker-compose.yml and the Dockerfile's postgresql-client-16
+    # exactly -- see the Dockerfile's comment for why that pin matters (a
+    # pg_dump/pg_restore version mismatch silently breaks the backup restore).
+    postgresMajorVersion: "16"
+
+services:
+  - type: web
+    name: stock-tracker-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    region: singapore
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: stock-tracker-db
+          property: connectionString
+      - key: JWT_SECRET_KEY
+        sync: false # set in the Render dashboard -- never commit this
+      - key: APP_ENV
+        value: production
+      - key: CORS_ORIGINS
+        value: https://stock-tracker-frontend.onrender.com
+      - key: WEB_CONCURRENCY
+        value: "2"
+      - key: GROQ_API_KEY
+        sync: false # optional -- leave unset in the dashboard to disable NL screening
+      - key: ALERT_WEBHOOK_URL
+        sync: false # optional -- leave unset to disable alerting
+
+  # Same image as the web service, different command -- see Dockerfile's
+  # CMD comment. `alembic upgrade head &&` in front of every cron command
+  # below is defensive, not the primary migration path (the web service's
+  # entrypoint.sh is): it's idempotent and cheap, and it means a cron job
+  # can never run ahead of the schema even if a future admin changes the
+  # deploy order.
+  - type: cron
+    name: stock-tracker-daily-pipeline
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerCommand: sh -c "alembic upgrade head && python -m app.jobs.daily_pipeline"
+    # 20:30 IST, Mon-Fri, expressed as 15:00 UTC -- Render cron schedules
+    # are UTC-only (no systemd-style TimeZone=). See README "Scheduling" for
+    # why 20:30 IST was chosen.
+    schedule: "0 15 * * 1-5"
+    plan: starter
+    region: singapore
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: stock-tracker-db
+          property: connectionString
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: APP_ENV
+        value: production
+      - key: ALERT_WEBHOOK_URL
+        sync: false
+
+  - type: cron
+    name: stock-tracker-healthcheck
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerCommand: sh -c "alembic upgrade head && python -m app.jobs.healthcheck"
+    schedule: "0 * * * *" # hourly -- matches deploy/systemd/stock-healthcheck.timer's cadence
+    plan: starter
+    region: singapore
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: stock-tracker-db
+          property: connectionString
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: APP_ENV
+        value: production
+      - key: ALERT_WEBHOOK_URL
+        sync: false
+
+  # Off-host backup of the tables with no automated source (see
+  # app/jobs/backup_db.py's docstring and DEPLOYMENT.md "Backups &
+  # recovery"). Daily, well after both the pipeline and normal usage hours.
+  - type: cron
+    name: stock-tracker-backup
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerCommand: sh -c "alembic upgrade head && python -m app.jobs.backup_db"
+    schedule: "0 16 * * *" # 21:30 IST, every day (incl. weekends -- user data changes any day)
+    plan: starter
+    region: singapore
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: stock-tracker-db
+          property: connectionString
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: APP_ENV
+        value: production
+      - key: ALERT_WEBHOOK_URL
+        sync: false
+      - key: BACKUP_S3_BUCKET
+        sync: false
+      - key: BACKUP_S3_ENDPOINT_URL
+        sync: false # leave unset for real AWS S3
+      - key: BACKUP_S3_REGION
+        sync: false
+      - key: BACKUP_S3_ACCESS_KEY_ID
+        sync: false
+      - key: BACKUP_S3_SECRET_ACCESS_KEY
+        sync: false
+
+  - type: web
+    name: stock-tracker-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      # Baked into the built JS at build time (see frontend/src/lib/api.ts)
+      # -- Vite does a static string replacement, this is not read at
+      # runtime. Must point at the API service's real deployed URL.
+      - key: VITE_API_BASE_URL
+        value: https://stock-tracker-api.onrender.com
+    routes:
+      # BrowserRouter (App.tsx) does client-side routing -- without this,
+      # refreshing on e.g. /watchlists 404s instead of loading index.html
+      # and letting React Router take over.
+      - type: rewrite
+        source: /*
+        destination: /index.html

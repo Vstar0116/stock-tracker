@@ -1,0 +1,13 @@
+[Unit]
+Description=Run the Stock Tracker pipeline healthcheck hourly
+
+[Timer]
+# Must run independently of (and more often than) the pipeline's own
+# schedule -- it exists specifically to notice when the pipeline's trigger
+# itself has stopped firing. Hourly is cheap (one query) and detects a dead
+# scheduler well within the 36h staleness threshold, not right at it.
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target

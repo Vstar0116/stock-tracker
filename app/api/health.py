@@ -12,5 +12,7 @@ def health() -> dict[str, str]:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"database unavailable: {exc}") from exc
+        # Liveness only -- no exception text (can include host/credentials)
+        # goes to an unauthenticated caller. See /api/status for detail.
+        raise HTTPException(status_code=503, detail="unhealthy") from exc
     return {"status": "ok"}

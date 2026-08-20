@@ -23,12 +23,15 @@ here rather than reaching compile_screen().
 from __future__ import annotations
 
 import json
+import logging
 
 import openai
 from pydantic import BaseModel, ValidationError
 
 from app.config import settings
 from app.schemas.screen import CATEGORICAL_FIELDS, DAILY_NUMERIC_FIELDS, FUNDAMENTAL_FIELDS, ScreenRule
+
+logger = logging.getLogger("nl_screen")
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 TOOL_NAME = "build_screen_rule"
@@ -79,6 +82,19 @@ Example -- "close above 100 and sector is Pharma":
 ]}}}}"""
 
 
+def nl_screen_status() -> tuple[bool, bool]:
+    """(configured, reachable) for the admin status page. A short-timeout
+    models-list call is cheap enough for an on-demand page load; not meant
+    to be polled."""
+    if not settings.groq_api_key:
+        return False, False
+    try:
+        openai.OpenAI(base_url=GROQ_BASE_URL, api_key=settings.groq_api_key, timeout=3.0).models.list()
+        return True, True
+    except Exception:
+        return True, False
+
+
 def translate_to_rule(text: str) -> ScreenRule:
     if not settings.groq_api_key:
         raise NlScreenError("natural-language screening is not configured (set GROQ_API_KEY)")
@@ -105,7 +121,12 @@ def translate_to_rule(text: str) -> ScreenRule:
             tool_choice={"type": "function", "function": {"name": TOOL_NAME}},
         )
     except openai.APIError as exc:
-        raise NlScreenError(f"could not reach the translation model: {exc}") from exc
+        # exc's text is Groq's own raw error response -- not ours to hand an
+        # authenticated app user verbatim (rate-limit/account details, etc.
+        # aren't secrets, but aren't this app's business to relay either).
+        # Logged here for real debugging; the client gets a fixed message.
+        logger.error("nl_screen: translation model request failed: %s", exc)
+        raise NlScreenError("could not reach the translation model, try again shortly") from exc
 
     tool_calls = response.choices[0].message.tool_calls
     if not tool_calls:

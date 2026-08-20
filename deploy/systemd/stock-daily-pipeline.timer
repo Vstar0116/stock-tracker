@@ -1,0 +1,25 @@
+[Unit]
+Description=Run the Stock Tracker daily pipeline after NSE/BSE close
+
+[Timer]
+# 20:30 IST, Mon-Fri. TimeZone= makes this explicit and correct regardless of
+# what timezone the host's system clock is set to -- systemd resolves this to
+# the right UTC instant itself; nothing in this repo hand-converts IST<->UTC.
+#
+# Reasoning for 20:30 (see README "Scheduling" for the full writeup): NSE has
+# no published SLA for bhavcopy availability and third-party sources disagree
+# by hours (informal reports range ~16:30-20:00 IST). We have real first-party
+# data instead -- both NSE's and BSE's bhavcopy for the day were confirmed
+# already published by 20:10 IST when checked directly. 20:30 sits past that
+# observation and past the latest cited third-party estimate. The pipeline's
+# own retry-with-backoff (app/jobs/daily_pipeline.py, 3 attempts, 5 then 15
+# min apart) is the backstop for an unusually late day beyond that.
+OnCalendar=Mon..Fri 20:30
+TimeZone=Asia/Kolkata
+
+# If the host was down at 20:30 IST (reboot, maintenance), run once as soon
+# as it's back instead of silently waiting until tomorrow.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

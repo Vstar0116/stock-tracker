@@ -11,11 +11,21 @@ from app.security import DUMMY_PASSWORD_HASH, create_access_token, verify_passwo
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-login_rate_limiter = RateLimiter(max_requests=5, window_seconds=60)
+# Both are checked on every login attempt. IP-based alone is trivially
+# bypassed by an attacker who just rotates source IPs (cheap via any
+# botnet/proxy pool) while hammering ONE victim's email -- the email-keyed
+# limiter is what actually bounds that. IP-based alone would also mean a
+# distributed attacker targeting many different accounts never trips any
+# single account's limit. Same budget for both by default: 5 attempts/60s
+# is generous for a real typo, tight for either brute-force shape.
+login_ip_limiter = RateLimiter(key_prefix="login:ip", max_requests=5, window_seconds=60)
+login_email_limiter = RateLimiter(key_prefix="login:email", max_requests=5, window_seconds=60)
 
 
-@router.post("/login", response_model=LoginResponse, dependencies=[Depends(login_rate_limiter)])
+@router.post("/login", response_model=LoginResponse, dependencies=[Depends(login_ip_limiter)])
 def login(payload: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
+    login_email_limiter.check(payload.email.strip().lower())
+
     user = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
 
     # Always run bcrypt, even for an email that doesn't exist -- checking it

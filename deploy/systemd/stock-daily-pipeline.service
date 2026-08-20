@@ -1,0 +1,22 @@
+[Unit]
+Description=Stock Tracker daily ingest/adjust/compute/screen pipeline
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+
+# Edit these two paths for the deployment host, and make sure JWT_SECRET_KEY /
+# DATABASE_URL / etc. are set for this service -- either bake them into a
+# real env file and uncomment EnvironmentFile, or set them directly here.
+WorkingDirectory=/path/to/stock-application
+ExecStart=/path/to/stock-application/.venv/bin/python -m app.jobs.daily_pipeline
+# EnvironmentFile=/path/to/stock-application/.env
+
+# job_runs (see app/jobs/_tracking.py) already records start/end/status/rows/
+# error for every step and for the pipeline as a whole -- journald is just
+# for output the app itself doesn't structure (tracebacks, OOM kills, a
+# crash before any job_runs row could be written). Inspect with:
+#   journalctl -u stock-daily-pipeline
+StandardOutput=journal
+StandardError=journal

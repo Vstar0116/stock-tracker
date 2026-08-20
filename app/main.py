@@ -8,15 +8,28 @@ from app.api.instruments import router as instruments_router
 from app.api.screens import router as screens_router
 from app.api.status import router as status_router
 from app.api.watchlists import router as watchlists_router
+from app.config import settings
+from app.security_headers import SecurityHeadersMiddleware
 
-app = FastAPI(title="Stock Tracker")
+_is_production = settings.app_env.lower() == "production"
 
-# Private tool, 4-5 known users, no public deployment planned -- a fixed
-# localhost dev-server origin is enough. Widen this if/when the frontend
-# gets a real deployment URL.
+app = FastAPI(
+    title="Stock Tracker",
+    # Private tool, not a public product (CLAUDE.md) -- no reason to hand an
+    # unauthenticated internet visitor the full endpoint/schema map once
+    # this is reachable outside localhost. Kept on for local dev convenience.
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
+)
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+# CORS_ORIGINS env var controls this in production (see DEPLOYMENT.md) --
+# defaults to the local Vite dev server only.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=settings.cors_origin_list,
     allow_methods=["*"],
     allow_headers=["*"],
 )

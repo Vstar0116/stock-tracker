@@ -106,8 +106,11 @@ def fetch_bse_bhavcopy(trade_date: date) -> bytes | None:
 
 def parse_bhavcopy(raw: bytes) -> list[dict]:
     text = raw.decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(text))
     rows = []
-    for row in csv.DictReader(io.StringIO(text)):
+    total = 0
+    for row in reader:
+        total += 1
         try:
             rows.append(
                 {
@@ -122,6 +125,12 @@ def parse_bhavcopy(raw: bytes) -> list[dict]:
             )
         except (InvalidOperation, KeyError, ValueError):
             continue  # blank/malformed row (e.g. a halted security) -- skip, don't crash the run
+    if total and not rows:
+        # Every row failed to parse -- almost certainly a renamed/missing column
+        # (NSE/BSE changed their UDiFF format), not a day with zero valid rows.
+        # Without this, a format change would silently upsert nothing while the
+        # job still reports "success".
+        raise ValueError(f"parsed 0 of {total} bhavcopy rows -- expected columns may have changed. header: {reader.fieldnames}")
     return rows
 
 

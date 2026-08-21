@@ -11,7 +11,7 @@ SAVEPOINT-backed transaction that's always rolled back.
 
 from datetime import date
 from datetime import datetime as real_datetime
-from datetime import timezone
+from datetime import timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import engine
 from app.jobs import daily_pipeline
-from app.models import DailyPrice, Instrument, JobRun
+from app.models import CorporateAction, DailyPrice, Instrument, JobRun
 
 
 @pytest.fixture()
@@ -259,6 +259,58 @@ class TestRowCountAlert:
 
         assert daily_pipeline.run_pipeline_with_retries() is True
         assert alerts == []
+
+
+class TestApplyCorporateActionsTiming:
+    """Regression coverage for the ex_date<=today gate in
+    step_apply_corporate_actions: an action discovered well before its
+    ex_date (ingest_corporate_actions looks up to 90 days ahead) must not be
+    applied until daily_prices actually has every row it needs to adjust.
+    Applying early would permanently mark it done while later-arriving rows
+    for dates still before ex_date are silently skipped forever -- exactly
+    the bug this test guards against (see app/jobs/repair_price_adjustments.py
+    for the one-off repair of data affected before this gate existed)."""
+
+    TODAY = date(2026, 3, 10)  # a Tuesday
+
+    @pytest.fixture(autouse=True)
+    def _pin_now(self, monkeypatch):
+        monkeypatch.setattr(daily_pipeline, "datetime", _fixed_utc_instant(self.TODAY))
+
+    def _seed(self, db, ex_date):
+        inst = Instrument(symbol="TIMING1", exchange="NSE", company_name="Timing Co", is_active=True)
+        db.add(inst)
+        db.flush()
+        action = CorporateAction(
+            instrument_id=inst.id, ex_date=ex_date, action_type="SPLIT",
+            ratio_from=1, ratio_to=5, applied=False,
+        )
+        db.add(action)
+        db.flush()
+        return inst, action
+
+    def test_action_with_future_ex_date_is_not_applied_yet(self, db):
+        inst, action = self._seed(db, ex_date=self.TODAY + timedelta(days=30))
+
+        result = daily_pipeline.step_apply_corporate_actions(dry_run=False)
+
+        assert result == "nothing pending"
+        db.refresh(action)
+        assert action.applied is False
+
+    def test_action_with_ex_date_today_or_past_is_applied(self, db):
+        inst_today, action_today = self._seed(db, ex_date=self.TODAY)
+        db.add(DailyPrice(
+            instrument_id=inst_today.id, trade_date=self.TODAY - timedelta(days=1),
+            open=100, high=100, low=100, close=100, adjusted_close=100, volume=1000,
+        ))
+        db.flush()
+
+        result = daily_pipeline.step_apply_corporate_actions(dry_run=False)
+
+        assert "applied 1 action" in result
+        db.refresh(action_today)
+        assert action_today.applied is True
 
 
 class TestDbConnectionFailureAtStartup:

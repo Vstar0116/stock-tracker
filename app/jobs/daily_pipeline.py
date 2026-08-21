@@ -107,7 +107,24 @@ def step_ingest_prices(dry_run: bool) -> str:
 def step_apply_corporate_actions(dry_run: bool) -> str:
     db = SessionLocal()
     try:
-        pending = db.execute(select(CorporateAction).where(CorporateAction.applied.is_(False))).scalars().all()
+        # ex_date <= today, not just "not yet applied" -- ingest_corporate_actions
+        # discovers actions up to 90 days before their ex_date (see that file's
+        # docstring), but apply_corporate_action's adjustment is a ONE-TIME pass
+        # over whatever daily_prices rows exist "trade_date < ex_date" *right now*,
+        # then permanently marks the action applied. Adjusting the moment an
+        # action is discovered -- weeks before ex_date -- means every price row
+        # for a date in that gap that gets ingested afterward (completely normal:
+        # one trading day arrives at a time) is silently never adjusted, leaving
+        # a second, fake discontinuity in adjusted_close right where recent
+        # indicators (SMA-20, RSI-14, ...) actually look. Waiting for ex_date to
+        # actually arrive guarantees every row the action needs to touch already
+        # exists, so the one-shot adjustment is correct by construction. See
+        # app/jobs/repair_price_adjustments.py for the one-off fix to actions
+        # this already happened to before this gate existed.
+        today_ist = (datetime.now(timezone.utc) + IST_OFFSET).date()
+        pending = db.execute(
+            select(CorporateAction).where(CorporateAction.applied.is_(False), CorporateAction.ex_date <= today_ist)
+        ).scalars().all()
         if dry_run:
             return f"would apply {len(pending)} pending corporate action(s)"
         if not pending:

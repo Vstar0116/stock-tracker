@@ -153,9 +153,9 @@ export function AppShell() {
 
         <div style={{ flex: 1 }} />
         <div style={{ padding: 8, fontSize: 11, color: 'var(--color-neutral-500)', lineHeight: 1.5 }}>
-          Internal tracking tool.
+          Internal tracking tool — for informational purposes only.
           <br />
-          No trading or order placement.
+          Not investment advice. No trading or order placement.
         </div>
       </aside>
 

@@ -13,10 +13,12 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app import rate_limit
 from app.db.session import engine, get_db
 from app.jobs.compute_indicators import load_price_history, upsert_indicators
 from app.main import app
 from app.models import DailyPrice, Instrument, JobRun, User
+from app.schemas.screen import parse_screen_definition
 from app.security import create_access_token, hash_password
 from app.services.indicators import compute_all_indicators
 from app.services.screening import latest_trade_date, previous_trade_date
@@ -36,9 +38,18 @@ def db():
 
 
 @pytest.fixture()
-def client(db):
+def client(db, monkeypatch):
     def override_get_db():
         yield db
+
+    def _session_factory():
+        return Session(bind=db.connection(), join_transaction_mode="create_savepoint")
+
+    # RateLimiter.check() opens its own SessionLocal() rather than using the
+    # injected `db` -- same reasoning as test_auth.py's client fixture. Point
+    # it at this test's SAVEPOINT-backed connection so any rate-limited route
+    # (login, screens/from-text) never writes rows into the real dev database.
+    monkeypatch.setattr(rate_limit, "SessionLocal", _session_factory)
 
     app.dependency_overrides[get_db] = override_get_db
     try:
@@ -344,6 +355,24 @@ class TestScreens:
         # real owner still sees their original screen, unchanged.
         still_listed = client.get("/api/screens", headers=_auth(owner))
         assert any(s["id"] == screen_id and s["name"] == "Private Screen" for s in still_listed.json()["items"])
+
+    def test_from_text_daily_cap_blocks_after_limit_and_is_per_user(self, client, owner, other_user, monkeypatch):
+        from app.api import screens as screens_module
+
+        rule = {"type": "compare", "op": "gt", "field": "close", "value": 100}
+        monkeypatch.setattr(screens_module, "translate_to_rule", lambda text: parse_screen_definition(rule))
+
+        headers = _auth(owner)
+        for _ in range(screens_module.nl_screen_daily_limiter.max_requests):
+            resp = client.post("/api/screens/from-text", json={"text": "close above 100"}, headers=headers)
+            assert resp.status_code == 200
+        blocked = client.post("/api/screens/from-text", json={"text": "close above 100"}, headers=headers)
+        assert blocked.status_code == 429
+        assert "daily limit" in blocked.json()["detail"]
+
+        # A different user has their own, untouched budget.
+        other_resp = client.post("/api/screens/from-text", json={"text": "close above 100"}, headers=_auth(other_user))
+        assert other_resp.status_code == 200
 
 
 class TestAlerts:

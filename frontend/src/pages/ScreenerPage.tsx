@@ -43,11 +43,12 @@ export function ScreenerPage() {
 
   const [results, setResults] = useState<ScreenMatchOut[] | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState<string | null>(null)
 
   const [nlText, setNlText] = useState('')
   const [nlLoading, setNlLoading] = useState(false)
 
-  const { data: screens, reload: reloadScreens } = useFetch<Page<ScreenOut>>('/api/screens?limit=200')
+  const { data: screens, error: screensError, reload: reloadScreens } = useFetch<Page<ScreenOut>>('/api/screens?limit=200')
   const { data: watchlistPage } = useFetch<Page<WatchlistOut>>('/api/watchlists?limit=200')
   const watchlists = watchlistPage?.items ?? []
 
@@ -57,14 +58,20 @@ export function ScreenerPage() {
   useEffect(() => {
     if (!definition) {
       setResults(null)
+      setPreviewError(null)
       return
     }
     let cancelled = false
     setPreviewLoading(true)
+    setPreviewError(null)
     const id = setTimeout(() => {
       apiFetch<Page<ScreenMatchOut>>('/api/screens/preview?limit=50', { method: 'POST', body: JSON.stringify({ definition }) })
         .then((res) => !cancelled && setResults(res.items))
-        .catch(() => !cancelled && setResults(null))
+        .catch((err) => {
+          if (cancelled) return
+          setResults(null)
+          setPreviewError(err instanceof ApiError ? err.message : 'failed to check matches')
+        })
         .finally(() => !cancelled && setPreviewLoading(false))
     }, 400)
     return () => {
@@ -182,12 +189,18 @@ export function ScreenerPage() {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <h5 style={{ margin: 0 }}>Preview results</h5>
-        <span style={{ fontSize: 12.5, color: 'var(--color-neutral-600)' }}>
-          {previewLoading ? 'evaluating…' : results ? `${results.length} matches, live as you edit the rule` : 'add a condition to see matches'}
+        <span style={{ fontSize: 12.5, color: previewError ? 'var(--color-neg-text)' : 'var(--color-neutral-600)' }}>
+          {previewLoading
+            ? 'evaluating…'
+            : previewError
+              ? `couldn't check matches: ${previewError}`
+              : results
+                ? `${results.length} matches, live as you edit the rule`
+                : 'add a condition to see matches'}
         </span>
       </div>
 
-      {results && results.length > 0 && (
+      {!previewError && results && results.length > 0 && (
         <table className="table">
           <thead>
             <tr>
@@ -230,13 +243,16 @@ export function ScreenerPage() {
           </tbody>
         </table>
       )}
-      {results && results.length === 0 && (
+      {!previewError && results && results.length === 0 && (
         <div style={{ padding: 26, textAlign: 'center', color: 'var(--color-neutral-600)', fontSize: 13, border: '1px solid var(--color-neutral-300)' }}>
           No stocks currently match this rule.
         </div>
       )}
 
-      {screens && screens.items.length > 0 && (
+      {screensError && (
+        <p style={{ fontSize: 13, color: 'var(--color-neg-text)', marginTop: 32 }}>Couldn't load saved screens: {screensError}</p>
+      )}
+      {!screensError && screens && screens.items.length > 0 && (
         <div style={{ marginTop: 32 }}>
           <h5 style={{ margin: '0 0 8px' }}>Saved screens</h5>
           <SavedScreensList screens={screens.items} onChanged={reloadScreens} />

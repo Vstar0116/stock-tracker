@@ -76,7 +76,7 @@ function AddInstrument({ watchlistId, onAdded }: { watchlistId: number; onAdded:
 export function WatchlistsPage() {
   const navigate = useNavigate()
   const toast = useToast()
-  const { data: list, reload: reloadList } = useFetch<Page<WatchlistOut>>('/api/watchlists?limit=200')
+  const { data: list, error: listError, reload: reloadList } = useFetch<Page<WatchlistOut>>('/api/watchlists?limit=200')
   const [activeId, setActiveId] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
@@ -90,7 +90,7 @@ export function WatchlistsPage() {
   const active = watchlists.find((w) => w.id === activeId) ?? null
   usePageHeader(active ? active.name : 'Watchlists')
 
-  const { data: view, reload: reloadView } = useFetch<Page<WatchlistViewRow>>(
+  const { data: view, error: viewError, reload: reloadView } = useFetch<Page<WatchlistViewRow>>(
     activeId !== null ? `/api/watchlists/${activeId}/view?limit=200` : null,
     [activeId],
   )
@@ -164,13 +164,18 @@ export function WatchlistsPage() {
         )}
       </div>
 
-      {!active && watchlists.length === 0 && <p className="text-muted" style={{ fontSize: 13 }}>No watchlists yet — create one above.</p>}
+      {listError && (
+        <p style={{ fontSize: 13, color: 'var(--color-neg-text)' }}>Couldn't load your watchlists: {listError}</p>
+      )}
+      {!listError && !active && watchlists.length === 0 && <p className="text-muted" style={{ fontSize: 13 }}>No watchlists yet — create one above.</p>}
 
       {active && (
         <>
           <AddInstrument watchlistId={active.id} onAdded={reloadView} />
 
-          {rows.length === 0 ? (
+          {viewError ? (
+            <p style={{ fontSize: 13, color: 'var(--color-neg-text)' }}>Couldn't load this watchlist: {viewError}</p>
+          ) : rows.length === 0 ? (
             <div className="card blueprint" style={{ maxWidth: 480, padding: 28 }}>
               <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
               <div className="card-kicker">{active.name}</div>

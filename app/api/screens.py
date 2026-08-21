@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import Pagination, get_current_user, get_owned_screen, pagination
 from app.db.session import get_db
 from app.models import Alert, Screen, User
+from app.rate_limit import RateLimiter
 from app.schemas.common import Page
 from app.schemas.screen import (
     ScreenCreate,
@@ -28,6 +29,20 @@ from app.services.nl_screen import NlScreenError, translate_to_rule
 from app.services.screening import NON_SNAPSHOT_COLUMNS, compile_screen, latest_trade_date, previous_trade_date
 
 router = APIRouter(prefix="/api/screens", tags=["screens"])
+
+# Unlike preview/run (plain SQL against our own DB -- cheap, unlimited), this
+# path calls out to Groq on every request: real external latency and, if the
+# free tier ever runs out, real cost. Keyed per-user with a 24h window on the
+# same (key, timestamp) table login rate-limiting already uses -- 40/day is
+# generous for iterating on a screen's phrasing in one sitting (a handful of
+# tries, not dozens) while bounding a 5-user deployment's worst case to ~200
+# LLM calls/day.
+nl_screen_daily_limiter = RateLimiter(
+    key_prefix="nl_screen:user",
+    max_requests=40,
+    window_seconds=86400,
+    message="daily limit for AI-generated screens reached (40/day) -- try again tomorrow, or build the rule manually below",
+)
 
 
 def _snapshot(row) -> dict:
@@ -137,8 +152,9 @@ def delete_screen(screen: Screen = Depends(get_owned_screen), db: Session = Depe
 @router.post("/from-text", response_model=ScreenFromTextResponse)
 def screen_from_text(
     payload: ScreenFromTextRequest,
-    current_user: User = Depends(get_current_user),  # unused -- enforces auth like every other route here
+    current_user: User = Depends(get_current_user),
 ) -> ScreenFromTextResponse:
+    nl_screen_daily_limiter.check(str(current_user.id))
     try:
         rule = translate_to_rule(payload.text)
     except NlScreenError as exc:

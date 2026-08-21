@@ -34,7 +34,7 @@ function snapshotLine(snapshot: Record<string, number | string | null>): string 
 export function AlertsPage() {
   usePageHeader('Alerts')
   const navigate = useNavigate()
-  const { data, reload } = useFetch<Page<AlertOut>>('/api/alerts?limit=200')
+  const { data, error: alertsError, reload } = useFetch<Page<AlertOut>>('/api/alerts?limit=200')
   const { data: screensPage } = useFetch<Page<ScreenOut>>('/api/screens?limit=200')
 
   const [screenFilter, setScreenFilter] = useState('all')
@@ -107,7 +107,11 @@ export function AlertsPage() {
         </button>
       </div>
 
-      {filtered.length === 0 && (
+      {alertsError && (
+        <p style={{ fontSize: 13, color: 'var(--color-neg-text)' }}>Couldn't load alerts: {alertsError}</p>
+      )}
+
+      {!alertsError && filtered.length === 0 && (
         <div className="card blueprint" style={{ maxWidth: 520, padding: 30 }}>
           <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
           <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--color-neutral-500)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 12 }}>

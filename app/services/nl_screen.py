@@ -99,7 +99,12 @@ def translate_to_rule(text: str) -> ScreenRule:
     if not settings.groq_api_key:
         raise NlScreenError("natural-language screening is not configured (set GROQ_API_KEY)")
 
-    client = openai.OpenAI(base_url=GROQ_BASE_URL, api_key=settings.groq_api_key)
+    # Explicit timeout -- openai's client default (10 minutes) would hold a
+    # gunicorn worker hostage on a hung Groq request instead of reaching the
+    # graceful NlScreenError path below in any reasonable time. Groq's own
+    # completions normally return in 1-3s; 20s is a generous margin, not a
+    # tight one.
+    client = openai.OpenAI(base_url=GROQ_BASE_URL, api_key=settings.groq_api_key, timeout=20.0)
     try:
         response = client.chat.completions.create(
             model=settings.nl_screen_model,

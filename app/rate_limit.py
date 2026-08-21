@@ -36,10 +36,17 @@ def client_ip(request: Request) -> str:
 
 
 class RateLimiter:
-    def __init__(self, key_prefix: str, max_requests: int, window_seconds: float) -> None:
+    def __init__(
+        self,
+        key_prefix: str,
+        max_requests: int,
+        window_seconds: float,
+        message: str = "too many attempts, try again later",
+    ) -> None:
         self.key_prefix = key_prefix
         self.max_requests = max_requests
         self.window = timedelta(seconds=window_seconds)
+        self.message = message
 
     def check(self, key: str) -> None:
         """Raises 429 if `key` is already at its budget for the current
@@ -57,7 +64,7 @@ class RateLimiter:
             ).scalar_one()
             if count >= self.max_requests:
                 db.commit()  # keep the cleanup even though this attempt is being rejected
-                raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "too many attempts, try again later")
+                raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, self.message)
             db.add(LoginAttempt(key=full_key, attempted_at=now))
             db.commit()
         finally:

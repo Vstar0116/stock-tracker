@@ -90,7 +90,12 @@ class _RawScan:
 
 @lru_cache(maxsize=64)
 def _scan_cached(fast: int, slow: int, ma_type: MaType, as_of: date) -> _RawScan:
-    n_bars = warmup_bars(slow, ma_type)
+    # Query window must never be narrower than the staleness tolerance --
+    # otherwise an instrument whose last bar is within tolerance but older
+    # than the warmup window never even comes back from the query (it's not
+    # a column in `wide` at all), and gets miscounted as insufficient
+    # history instead of being forward-filled and scored normally.
+    n_bars = max(warmup_bars(slow, ma_type), STALE_TOLERANCE_DAYS + 1)
     wide = _load_wide_cached(n_bars, as_of)
 
     with _connect() as conn:

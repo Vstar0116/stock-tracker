@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.db.session import engine
 from app.models import DailyPrice, Instrument
 from app.services import crossover_loader
+from app.services.crossover import STALE_TOLERANCE_DAYS
 
 
 @pytest.fixture()
@@ -180,3 +181,44 @@ class TestRunScan:
         assert result.evaluated == 1
         assert result.skipped_insufficient_history == 1
         assert result.skipped_stale == 0
+
+    def test_gap_exactly_at_stale_tolerance_is_forward_filled_not_insufficient(self, db, monkeypatch):
+        # Regression test for a review finding: _scan_cached used to size its
+        # query window as exactly warmup_bars(slow, ma_type), which for a
+        # small slow (e.g. 3, giving warmup_bars=4) can be narrower than
+        # STALE_TOLERANCE_DAYS. An instrument whose last bar is within
+        # tolerance but older than that narrow window never comes back from
+        # the query at all -- it's not a column in `wide` -- so it silently
+        # fell into `never_loaded` and was miscounted as
+        # skipped_insufficient_history instead of being forward-filled and
+        # scored normally, even though it has plenty of history.
+        monkeypatch.setattr(crossover_loader, "_connect", lambda: contextlib.nullcontext(db.connection()))
+        crossover_loader._scan_cached.cache_clear()
+        crossover_loader._load_wide_cached.cache_clear()
+
+        start = date(2026, 1, 1)
+        # FULL trades every day through as_of, establishing the market's
+        # latest trade_date.
+        _seed_instrument(db, "FULL", [100.0] * 13, start)
+        # GAP's last bar is exactly STALE_TOLERANCE_DAYS before as_of --
+        # the boundary case that must still be forward-filled, not dropped.
+        gap_id = _seed_instrument(db, "GAP", [10.0] * (13 - STALE_TOLERANCE_DAYS), start)
+
+        # Small slow: warmup_bars(3, "sma") = 4, narrower than the tolerance
+        # window before the fix.
+        small = crossover_loader.run_scan(db, fast=1, slow=3, ma_type="sma", direction="any")
+        assert small.skipped_stale == 0
+        assert small.skipped_insufficient_history == 0
+
+        crossover_loader._scan_cached.cache_clear()
+        crossover_loader._load_wide_cached.cache_clear()
+
+        # Larger slow: warmup_bars(10, "sma") = 11, already wider than the
+        # tolerance window -- this case worked correctly even before the
+        # fix, and must keep working the same way.
+        large = crossover_loader.run_scan(db, fast=1, slow=10, ma_type="sma", direction="any")
+        assert large.skipped_stale == 0
+        assert large.skipped_insufficient_history == 0
+
+        assert gap_id not in small.matches.index  # flat prices, no crossover -- just checking it wasn't skipped
+        assert gap_id not in large.matches.index

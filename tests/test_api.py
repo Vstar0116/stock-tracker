@@ -570,3 +570,64 @@ class TestInstrumentCrossover:
     def test_requires_auth(self, client):
         resp = client.get("/api/instruments/1/crossover", params={"fast": 9, "slow": 21, "ma_type": "ema"})
         assert resp.status_code == 401
+
+
+class TestCrossoverScan:
+    def test_finds_matches_across_instruments(self, client, db, owner, monkeypatch):
+        import contextlib
+        from datetime import date, timedelta
+
+        from app.models import DailyPrice, Instrument
+        from app.services import crossover_loader
+
+        # crossover_loader.run_scan opens its OWN db connection for the
+        # cached, expensive part of the scan (see the module docstring in
+        # app/services/crossover_loader.py) rather than using the `db`
+        # session injected below -- so it can't see this test's
+        # SAVEPOINT-backed, uncommitted rows unless pointed at the same
+        # connection. Same pattern as tests/test_crossover_loader.py.
+        monkeypatch.setattr(crossover_loader, "_connect", lambda: contextlib.nullcontext(db.connection()))
+        crossover_loader._scan_cached.cache_clear()
+        crossover_loader._load_wide_cached.cache_clear()
+
+        crossing = Instrument(symbol="XOVR2", exchange="NSE", company_name="Crossing Co", sector="IT", is_active=True)
+        flat = Instrument(symbol="FLAT2", exchange="NSE", company_name="Flat Co", is_active=True)
+        db.add_all([crossing, flat])
+        db.flush()
+
+        start = date(2026, 1, 1)
+        # NOTE: the plan's literal here was [10, 10, 10, 10, 10, 10, 30, 30, 30]
+        # (6 flat bars + 3 elevated), which produces NO crossing signal on the
+        # last bar -- the crossing event happens on day 7 and by day 9 the
+        # fast/slow diff has settled back to 0. tests/test_crossover_loader.py
+        # already found and documented this exact bug; using its fix here:
+        # [10]*8 + [30] actually crosses on the last bar.
+        for i, close in enumerate([10, 10, 10, 10, 10, 10, 10, 10, 30]):
+            db.add(DailyPrice(instrument_id=crossing.id, trade_date=start + timedelta(days=i), open=close, high=close, low=close, close=close, adjusted_close=close, volume=100))
+        for i in range(9):
+            db.add(DailyPrice(instrument_id=flat.id, trade_date=start + timedelta(days=i), open=50, high=50, low=50, close=50, adjusted_close=50, volume=100))
+        db.flush()
+
+        resp = client.post(
+            "/api/scans/crossover",
+            json={"fast": 2, "slow": 3, "ma_type": "sma", "direction": "any"},
+            headers=_auth(owner),
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        symbols = {m["symbol"] for m in body["matches"]}
+        assert "XOVR2" in symbols
+        assert "FLAT2" not in symbols
+        assert body["stats"]["matched"] == len(body["matches"])
+
+    def test_rejects_invalid_periods(self, client, owner):
+        resp = client.post(
+            "/api/scans/crossover",
+            json={"fast": 50, "slow": 20, "ma_type": "sma", "direction": "any"},
+            headers=_auth(owner),
+        )
+        assert resp.status_code == 422
+
+    def test_requires_auth(self, client):
+        resp = client.post("/api/scans/crossover", json={"fast": 9, "slow": 21, "ma_type": "ema", "direction": "any"})
+        assert resp.status_code == 401

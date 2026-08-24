@@ -412,3 +412,70 @@ chart, trade log table, summary stats.
 
 This spec covers sub-project A in full. B, C, and D get their own
 spec-and-plan cycle when we reach them.
+
+---
+
+## Measured performance (Task 8)
+
+Ran `python -m scripts.bench_crossover_scan` against the real local dev
+database: 7,528 active instruments, ~3.9M rows in `daily_prices`, date range
+2024-01-01 to 2026-08-20 (same Postgres container the main repo checkout
+uses, not a seeded test fixture). Two consecutive runs, both cache-cleared
+before each scenario:
+
+**Run 1:**
+
+```
+EMA 9/21 (warmup=250 bars, window=2025-08-14..2026-08-20):
+  resolve_window:        215ms
+  cold run (query+compute): 5634ms
+  warm run (cache hit):   98ms
+  evaluated=7528 matched=301 stale=121 short_history=343
+
+SMA 20/50 (warmup=51 bars, window=2026-06-10..2026-08-20):
+  resolve_window:        156ms
+  cold run (query+compute): 1854ms
+  warm run (cache hit):   88ms
+  evaluated=7528 matched=141 stale=83 short_history=792
+
+SMA 50/200 (warmup=201 bars, window=2025-10-28..2026-08-20):
+  resolve_window:        150ms
+  cold run (query+compute): 4397ms
+  warm run (cache hit):   88ms
+  evaluated=7528 matched=31 stale=117 short_history=1369
+```
+
+**Run 2 (repeat, to check the numbers aren't a one-off disk-cold fluke):**
+
+```
+EMA 9/21:    cold 5692ms, warm 96ms
+SMA 20/50:   cold 1941ms, warm 86ms
+SMA 50/200:  cold 4780ms, warm 91ms
+```
+
+**Assessment against target.** Warm runs are near-instant as designed
+(86-98ms, dominated by the `as_of` freshness check, well inside the cache-hit
+path). Cold runs are **materially over** the spec's ~1-2s design estimate for
+two of the three scenarios:
+
+- SMA 20/50 (smallest window, 51-bar warmup): ~1.9s -- close to target.
+- SMA 50/200 (201-bar warmup): ~4.4-4.8s -- roughly 2-3x the estimate.
+- EMA 9/21 (250-bar floor warmup, the largest window of the three because EMA's
+  floor is 250 bars regardless of period): ~5.6-5.7s -- roughly 3-4x the
+  estimate, and arguably outside "a few seconds" from the user's perspective.
+
+Both runs agree within ~150ms per scenario, so this is a consistent cost, not
+noise. The likely cause is exactly what the *Performance* section above
+already anticipated: the range scan on `daily_prices` for the widest windows
+reads a large fraction of the table's ~3.9M rows without a covering index,
+so Postgres can't serve the scan from the index alone.
+
+**This is a flagged concern, not a silent acceptance.** Per the spec's
+*Performance* section, the next step if this needs to be closed is the
+deferred covering index on `daily_prices (trade_date, instrument_id)`
+including `adjusted_close` -- out of scope for this task (Task 8 is
+measurement only, no schema migration), but the numbers above are the
+evidence that step should be picked up before this feature is called fully
+tuned. Correctness is unaffected: `evaluated`/`matched`/`stale`/
+`short_history` counts are stable across both runs, and `cached=True` on the
+warm run held for every scenario.

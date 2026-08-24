@@ -4,6 +4,7 @@ import { AuthProvider, ProtectedRoute } from './lib/auth'
 import { HeaderProvider } from './lib/pageHeader'
 import { ToastProvider } from './lib/toast'
 import { AlertsPage } from './pages/AlertsPage'
+import { CustomScanPage } from './pages/CustomScanPage'
 import { LoginPage } from './pages/LoginPage'
 import { ScreenerPage } from './pages/ScreenerPage'
 import { StatusPage } from './pages/StatusPage'
@@ -27,6 +28,7 @@ export default function App() {
               >
                 <Route path="/watchlists" element={<WatchlistsPage />} />
                 <Route path="/screener" element={<ScreenerPage />} />
+                <Route path="/scan" element={<CustomScanPage />} />
                 <Route path="/alerts" element={<AlertsPage />} />
                 <Route path="/status" element={<StatusPage />} />
                 <Route path="/stocks/:id" element={<StockDetailPage />} />

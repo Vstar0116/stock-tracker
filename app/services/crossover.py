@@ -70,3 +70,26 @@ def compute_crossover(prices: pd.DataFrame, fast: int, slow: int, ma_type: MaTyp
     prev = diff.shift(1)
     signal = _signal_from_diff(diff, prev)
     return pd.DataFrame({"fast": fast_ma, "slow": slow_ma, "signal": signal}, index=prices.index)
+
+
+def scan_last_bar(wide: pd.DataFrame, fast: int, slow: int, ma_type: MaType) -> pd.Series:
+    """Market-wide. `wide` is trade_date x instrument_id of adjusted_close.
+
+    Every operation below runs across all instruments at once in pandas' C
+    layer -- there is no Python-level loop over instruments anywhere in this
+    function. Returns a Series indexed by instrument_id holding the signal on
+    the final bar; instruments with no signal are dropped, not returned as None.
+    """
+    validate_periods(fast, slow)
+    fast_ma = _moving_average(wide, fast, ma_type)
+    slow_ma = _moving_average(wide, slow, ma_type)
+    diff = fast_ma - slow_ma
+    prev = diff.shift(1)
+
+    above = (diff > 0) & (prev <= 0)
+    below = (diff < 0) & (prev >= 0)
+
+    out = pd.Series(None, index=wide.columns, dtype=object)
+    out[above.iloc[-1]] = "crossed_above"
+    out[below.iloc[-1]] = "crossed_below"
+    return out.dropna()

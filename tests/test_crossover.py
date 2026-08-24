@@ -4,6 +4,7 @@ Pure pandas functions -- no database needed.
 Run with: pytest tests/test_crossover.py -v
 """
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -111,3 +112,44 @@ class TestComputeCrossoverEMA:
         full_ema = ema(prices_full["adjusted_close"], 50).iloc[-1]
         trunc_ema = ema(prices_trunc["adjusted_close"], 50).iloc[-1]
         assert trunc_ema == pytest.approx(full_ema, rel=1e-4)
+
+
+class TestScanLastBarParity:
+    def test_matches_per_instrument_compute_crossover(self):
+        # Build a wide frame of several independent instruments, each with
+        # its own randomized-but-seeded walk, and confirm scan_last_bar's
+        # vectorized result agrees with running compute_crossover on each
+        # column separately -- this is what keeps the instant endpoint and
+        # the market-wide scan from ever disagreeing.
+        from app.services.crossover import scan_last_bar
+
+        rng = np.random.default_rng(42)
+        n_bars, n_instruments = 80, 12
+        dates = pd.date_range("2026-01-01", periods=n_bars, freq="D")
+
+        wide = pd.DataFrame(
+            {i: 100 + np.cumsum(rng.normal(0, 1, n_bars)) for i in range(n_instruments)},
+            index=pd.Index(dates, name="trade_date"),
+        )
+
+        for ma_type in ("sma", "ema"):
+            for fast, slow in [(3, 8), (5, 20)]:
+                vectorized = scan_last_bar(wide, fast, slow, ma_type)
+                for instrument_id in wide.columns:
+                    single = compute_crossover(
+                        wide[[instrument_id]].rename(columns={instrument_id: "adjusted_close"}),
+                        fast, slow, ma_type,
+                    )
+                    expected = single["signal"].iloc[-1]
+                    if pd.isna(expected):
+                        assert instrument_id not in vectorized.index
+                    else:
+                        assert vectorized[instrument_id] == expected
+
+    def test_drops_instruments_with_no_signal(self):
+        from app.services.crossover import scan_last_bar
+
+        dates = pd.date_range("2026-01-01", periods=10, freq="D")
+        wide = pd.DataFrame({1: [50.0] * 10, 2: [10, 10, 10, 10, 10, 10, 10, 10, 30, 30]}, index=dates)
+        result = scan_last_bar(wide, fast=2, slow=3, ma_type="sma")
+        assert 1 not in result.index  # flat series, never crosses

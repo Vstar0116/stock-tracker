@@ -51,10 +51,20 @@ def _moving_average(x: pd.Series | pd.DataFrame, window: int, ma_type: MaType):
     return sma(x, window) if ma_type == "sma" else ema(x, window)
 
 
+def _crossing_masks(diff: pd.Series | pd.DataFrame, prev: pd.Series | pd.DataFrame):
+    """Shared by _signal_from_diff (single-instrument) and scan_last_bar
+    (market-wide) so the two code paths can't diverge on what counts as a
+    crossing. Returns (above_mask, below_mask), same shape as diff/prev."""
+    above = (diff > 0) & (prev <= 0)
+    below = (diff < 0) & (prev >= 0)
+    return above, below
+
+
 def _signal_from_diff(diff: pd.Series, prev: pd.Series) -> pd.Series:
     signal = pd.Series(None, index=diff.index, dtype=object)
-    signal[(diff > 0) & (prev <= 0)] = "crossed_above"
-    signal[(diff < 0) & (prev >= 0)] = "crossed_below"
+    above, below = _crossing_masks(diff, prev)
+    signal[above] = "crossed_above"
+    signal[below] = "crossed_below"
     return signal
 
 
@@ -81,13 +91,13 @@ def scan_last_bar(wide: pd.DataFrame, fast: int, slow: int, ma_type: MaType) -> 
     the final bar; instruments with no signal are dropped, not returned as None.
     """
     validate_periods(fast, slow)
+    wide = wide.astype(float)
     fast_ma = _moving_average(wide, fast, ma_type)
     slow_ma = _moving_average(wide, slow, ma_type)
     diff = fast_ma - slow_ma
     prev = diff.shift(1)
 
-    above = (diff > 0) & (prev <= 0)
-    below = (diff < 0) & (prev >= 0)
+    above, below = _crossing_masks(diff, prev)
 
     out = pd.Series(None, index=wide.columns, dtype=object)
     out[above.iloc[-1]] = "crossed_above"

@@ -2,14 +2,26 @@
 
 Requires the local Postgres (docker compose up -d) -- runs inside a
 SAVEPOINT-backed transaction that's always rolled back, using throwaway
-instruments so nothing here depends on real market data.
+instruments so nothing here depends on real market data for correctness.
+
+IMPORTANT: this dev database now carries real, backfilled market data
+(~7,500 active instruments, ~3.9M daily_prices rows through the current
+as_of). resolve_window/load_wide/the active-instrument count are legitimately
+whole-market queries by design (that's the market-wide scan's whole point),
+so they will see that real data alongside whatever a test seeds -- these
+tests anchor seeded rows to the REAL, current trade-date calendar (via
+_recent_trade_dates) and assert relative outcomes (their own seeded
+instrument's presence/value, or before/after deltas) rather than absolute
+counts or index equality that assumed an empty table.
+
 Run with: pytest tests/test_crossover_loader.py -v
 """
 
 import contextlib
-from datetime import date, timedelta
+from datetime import date
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db.session import engine
@@ -31,12 +43,26 @@ def db():
         connection.close()
 
 
-def _seed_instrument(db: Session, symbol: str, closes: list[float], start: date) -> int:
+def _recent_trade_dates(db: Session, n: int) -> list[date]:
+    """The n most recent distinct trade_dates already present in daily_prices,
+    ascending. Anchoring seeded rows to real, already-existing trade dates
+    (rather than a hardcoded calendar range) means the seed never introduces
+    NEW distinct dates that could shift as_of/cutoff for every other query
+    sharing this table, and the last date returned is always the current
+    as_of (MAX(trade_date))."""
+    rows = db.execute(
+        text("SELECT DISTINCT trade_date FROM daily_prices ORDER BY trade_date DESC LIMIT :n"),
+        {"n": n},
+    ).fetchall()
+    return sorted(r[0] for r in rows)
+
+
+def _seed_instrument(db: Session, symbol: str, closes: list[float], dates: list[date]) -> int:
+    assert len(closes) == len(dates)
     inst = Instrument(symbol=symbol, exchange="NSE", company_name=symbol, is_active=True)
     db.add(inst)
     db.flush()
-    for i, close in enumerate(closes):
-        d = start + timedelta(days=i)
+    for d, close in zip(dates, closes):
         db.add(
             DailyPrice(
                 instrument_id=inst.id, trade_date=d, open=close, high=close, low=close,
@@ -47,45 +73,51 @@ def _seed_instrument(db: Session, symbol: str, closes: list[float], start: date)
     return inst.id
 
 
+def _active_count(db: Session) -> int:
+    return db.execute(text("SELECT COUNT(*) FROM instruments WHERE is_active")).scalar_one()
+
+
+def _clear_caches():
+    crossover_loader._scan_cached.cache_clear()
+    crossover_loader._load_wide_cached.cache_clear()
+
+
 class TestResolveWindow:
     def test_cutoff_and_as_of_span_n_distinct_dates(self, db, monkeypatch):
         # crossover_loader opens its OWN connection (see module docstring),
         # not the test's SAVEPOINT-backed session -- point its engine calls at
         # the same connection so seeded rows are visible without committing.
-        # _connect() is used as `with _connect() as conn:` in production code,
-        # which closes a fresh engine connection after each use -- wrapping
-        # the test's shared, SAVEPOINT-backed connection in nullcontext makes
-        # that `with` a no-op instead of closing (and breaking) the fixture.
         monkeypatch.setattr(crossover_loader, "_connect", lambda: contextlib.nullcontext(db.connection()))
-        start = date(2026, 1, 1)
-        _seed_instrument(db, "AAA", [100.0] * 10, start)
 
-        cutoff, as_of = crossover_loader.resolve_window(5)
-        assert as_of == start + timedelta(days=9)
-        assert cutoff == start + timedelta(days=5)
+        # resolve_window is a genuinely whole-market query (there is no
+        # per-instrument filter to seed against), so this test verifies it
+        # directly against the same live calendar rather than a hardcoded
+        # date range assumed to be the only data in the table.
+        n = 5
+        expected = _recent_trade_dates(db, n)
+
+        cutoff, as_of = crossover_loader.resolve_window(n)
+        assert as_of == expected[-1]
+        assert cutoff == expected[0]
 
 
 class TestLoadWide:
     def test_pivots_and_forward_fills_within_tolerance(self, db, monkeypatch):
-        # _connect() is used as `with _connect() as conn:` in production code,
-        # which closes a fresh engine connection after each use -- wrapping
-        # the test's shared, SAVEPOINT-backed connection in nullcontext makes
-        # that `with` a no-op instead of closing (and breaking) the fixture.
         monkeypatch.setattr(crossover_loader, "_connect", lambda: contextlib.nullcontext(db.connection()))
-        start = date(2026, 1, 1)
-        id_a = _seed_instrument(db, "AAA", [10.0, 11.0, 12.0], start)
-        id_b = _seed_instrument(db, "BBB", [20.0, 21.0, 22.0], start)
+        dates = _recent_trade_dates(db, 3)
+        id_a = _seed_instrument(db, "AAA", [10.0, 11.0, 12.0], dates)
+        id_b = _seed_instrument(db, "BBB", [20.0, 21.0, 22.0], dates)
 
-        wide = crossover_loader.load_wide(start)
-        assert list(wide.columns) == sorted([id_a, id_b])
-        assert wide.loc[start, id_a] == 10.0
-        assert wide.loc[start + timedelta(days=2), id_b] == 22.0
+        wide = crossover_loader.load_wide(dates[0])
+        # The real market's own active instruments are legitimately present
+        # too (whole-market query) -- assert our seeded columns/values
+        # specifically rather than the exact column set.
+        assert id_a in wide.columns
+        assert id_b in wide.columns
+        assert wide.loc[dates[0], id_a] == 10.0
+        assert wide.loc[dates[2], id_b] == 22.0
 
     def test_excludes_inactive_instruments(self, db, monkeypatch):
-        # _connect() is used as `with _connect() as conn:` in production code,
-        # which closes a fresh engine connection after each use -- wrapping
-        # the test's shared, SAVEPOINT-backed connection in nullcontext makes
-        # that `with` a no-op instead of closing (and breaking) the fixture.
         monkeypatch.setattr(crossover_loader, "_connect", lambda: contextlib.nullcontext(db.connection()))
         start = date(2026, 1, 1)
         inst = Instrument(symbol="ZZZ", exchange="NSE", company_name="ZZZ", is_active=False)
@@ -100,87 +132,77 @@ class TestLoadWide:
 
 class TestRunScan:
     def test_finds_a_known_crossover_and_counts_it(self, db, monkeypatch):
-        # _connect() is used as `with _connect() as conn:` in production code,
-        # which closes a fresh engine connection after each use -- wrapping
-        # the test's shared, SAVEPOINT-backed connection in nullcontext makes
-        # that `with` a no-op instead of closing (and breaking) the fixture.
         monkeypatch.setattr(crossover_loader, "_connect", lambda: contextlib.nullcontext(db.connection()))
-        crossover_loader._scan_cached.cache_clear()
-        crossover_loader._load_wide_cached.cache_clear()
+        _clear_caches()
 
-        start = date(2026, 1, 1)
-        # 8 flat bars then a jump -- fast(2) crosses above slow(3) on the move.
-        # NOTE: brief bug fix -- the brief's literal here was
-        # [10, 10, 10, 10, 10, 10, 30, 30, 30] (6 flat + 3 elevated), which
-        # contradicts its own comment and, verified with pandas directly,
-        # produces NO crossing signal on the last bar (the crossing event
-        # happens on day 7; by day 9 diff has settled back to 0, and
-        # scan_last_bar only reports a signal when the crossing occurs on
-        # the last bar). [10]*8 + [30] matches the comment and actually
-        # crosses on the last bar.
-        crossing_id = _seed_instrument(db, "XYZ", [10, 10, 10, 10, 10, 10, 10, 10, 30], start)
-        flat_id = _seed_instrument(db, "FLAT", [50.0] * 9, start)
+        before_active = _active_count(db)
+        dates = _recent_trade_dates(db, 9)
+        # 8 flat bars then a jump on the real market's last 9 trading days --
+        # fast(2) crosses above slow(3) on the final bar.
+        crossing_id = _seed_instrument(db, "XYZ", [10, 10, 10, 10, 10, 10, 10, 10, 30], dates)
+        flat_id = _seed_instrument(db, "FLAT", [50.0] * 9, dates)
 
         result = crossover_loader.run_scan(db, fast=2, slow=3, ma_type="sma", direction="any")
 
         assert crossing_id in result.matches.index
         assert result.matches[crossing_id] == "crossed_above"
         assert flat_id not in result.matches.index
-        assert result.evaluated == 2
-        assert result.skipped_stale == 0
+        # evaluated is a whole-market count now -- assert the delta our own
+        # two new active instruments contributed, not an absolute total.
+        assert result.evaluated == before_active + 2
 
     def test_direction_filter_excludes_non_matching_signals(self, db, monkeypatch):
-        # _connect() is used as `with _connect() as conn:` in production code,
-        # which closes a fresh engine connection after each use -- wrapping
-        # the test's shared, SAVEPOINT-backed connection in nullcontext makes
-        # that `with` a no-op instead of closing (and breaking) the fixture.
         monkeypatch.setattr(crossover_loader, "_connect", lambda: contextlib.nullcontext(db.connection()))
-        crossover_loader._scan_cached.cache_clear()
-        crossover_loader._load_wide_cached.cache_clear()
+        _clear_caches()
 
-        start = date(2026, 1, 1)
-        # See note in test_finds_a_known_crossover_and_counts_it -- fixed to
-        # [10]*8 + [30] so this instrument has a real crossed_above signal
-        # to be correctly filtered out (not trivially absent).
-        crossing_id = _seed_instrument(db, "XYZ", [10, 10, 10, 10, 10, 10, 10, 10, 30], start)
+        dates = _recent_trade_dates(db, 9)
+        crossing_id = _seed_instrument(db, "XYZ", [10, 10, 10, 10, 10, 10, 10, 10, 30], dates)
 
-        result = crossover_loader.run_scan(db, fast=2, slow=3, ma_type="sma", direction="crossed_below")
-        assert crossing_id not in result.matches.index
+        below = crossover_loader.run_scan(db, fast=2, slow=3, ma_type="sma", direction="crossed_below")
+        assert crossing_id not in below.matches.index
+
+        # Prove the exclusion above is really the direction filter at work
+        # (not the seeded instrument simply being absent from the scan
+        # window) by confirming it DOES show up, with the expected signal,
+        # under "crossed_above" / "any".
+        _clear_caches()
+        above = crossover_loader.run_scan(db, fast=2, slow=3, ma_type="sma", direction="crossed_above")
+        assert crossing_id in above.matches.index
+        assert above.matches[crossing_id] == "crossed_above"
 
     def test_repeat_call_same_as_of_is_a_cache_hit(self, db, monkeypatch):
-        # _connect() is used as `with _connect() as conn:` in production code,
-        # which closes a fresh engine connection after each use -- wrapping
-        # the test's shared, SAVEPOINT-backed connection in nullcontext makes
-        # that `with` a no-op instead of closing (and breaking) the fixture.
         monkeypatch.setattr(crossover_loader, "_connect", lambda: contextlib.nullcontext(db.connection()))
-        crossover_loader._scan_cached.cache_clear()
-        crossover_loader._load_wide_cached.cache_clear()
+        _clear_caches()
 
-        start = date(2026, 1, 1)
-        _seed_instrument(db, "XYZ", [10, 10, 10, 10, 10, 10, 10, 10, 30], start)
+        dates = _recent_trade_dates(db, 9)
+        crossing_id = _seed_instrument(db, "XYZ", [10, 10, 10, 10, 10, 10, 10, 10, 30], dates)
 
         first = crossover_loader.run_scan(db, fast=2, slow=3, ma_type="sma", direction="any")
         second = crossover_loader.run_scan(db, fast=2, slow=3, ma_type="sma", direction="any")
         assert first.cached is False
         assert second.cached is True
+        # Exercise the seeded data through both the cold and cached path --
+        # not just the cache_info() bookkeeping.
+        assert crossing_id in first.matches.index
+        assert crossing_id in second.matches.index
+        assert first.matches[crossing_id] == second.matches[crossing_id] == "crossed_above"
 
     def test_counts_insufficient_history_separately_from_stale(self, db, monkeypatch):
-        # _connect() is used as `with _connect() as conn:` in production code,
-        # which closes a fresh engine connection after each use -- wrapping
-        # the test's shared, SAVEPOINT-backed connection in nullcontext makes
-        # that `with` a no-op instead of closing (and breaking) the fixture.
         monkeypatch.setattr(crossover_loader, "_connect", lambda: contextlib.nullcontext(db.connection()))
-        crossover_loader._scan_cached.cache_clear()
-        crossover_loader._load_wide_cached.cache_clear()
+        _clear_caches()
+        before = crossover_loader.run_scan(db, fast=1, slow=3, ma_type="sma", direction="any")
 
-        start = date(2026, 1, 1)
         # Only 2 bars -- can't form a slow=3 SMA at all.
-        _seed_instrument(db, "SHORT", [10.0, 11.0], start)
+        dates = _recent_trade_dates(db, 2)
+        short_id = _seed_instrument(db, "SHORT", [10.0, 11.0], dates)
 
-        result = crossover_loader.run_scan(db, fast=1, slow=3, ma_type="sma", direction="any")
-        assert result.evaluated == 1
-        assert result.skipped_insufficient_history == 1
-        assert result.skipped_stale == 0
+        _clear_caches()
+        after = crossover_loader.run_scan(db, fast=1, slow=3, ma_type="sma", direction="any")
+
+        assert after.evaluated == before.evaluated + 1
+        assert after.skipped_insufficient_history == before.skipped_insufficient_history + 1
+        assert after.skipped_stale == before.skipped_stale
+        assert short_id not in after.matches.index
 
     def test_gap_exactly_at_stale_tolerance_is_forward_filled_not_insufficient(self, db, monkeypatch):
         # Regression test for a review finding: _scan_cached used to size its
@@ -193,32 +215,37 @@ class TestRunScan:
         # skipped_insufficient_history instead of being forward-filled and
         # scored normally, even though it has plenty of history.
         monkeypatch.setattr(crossover_loader, "_connect", lambda: contextlib.nullcontext(db.connection()))
-        crossover_loader._scan_cached.cache_clear()
-        crossover_loader._load_wide_cached.cache_clear()
 
-        start = date(2026, 1, 1)
-        # FULL trades every day through as_of, establishing the market's
-        # latest trade_date.
-        _seed_instrument(db, "FULL", [100.0] * 13, start)
-        # GAP's last bar is exactly STALE_TOLERANCE_DAYS before as_of --
-        # the boundary case that must still be forward-filled, not dropped.
-        gap_id = _seed_instrument(db, "GAP", [10.0] * (13 - STALE_TOLERANCE_DAYS), start)
+        _clear_caches()
+        before_small = crossover_loader.run_scan(db, fast=1, slow=3, ma_type="sma", direction="any")
+        _clear_caches()
+        before_large = crossover_loader.run_scan(db, fast=1, slow=10, ma_type="sma", direction="any")
+
+        dates = _recent_trade_dates(db, 13)
+        # FULL trades every one of the real market's last 13 trading days,
+        # establishing full history through as_of.
+        _seed_instrument(db, "FULL", [100.0] * 13, dates)
+        # GAP's last bar is exactly STALE_TOLERANCE_DAYS trading days before
+        # as_of -- the boundary case that must still be forward-filled, not
+        # dropped.
+        gap_len = 13 - STALE_TOLERANCE_DAYS
+        gap_id = _seed_instrument(db, "GAP", [10.0] * gap_len, dates[:gap_len])
 
         # Small slow: warmup_bars(3, "sma") = 4, narrower than the tolerance
         # window before the fix.
+        _clear_caches()
         small = crossover_loader.run_scan(db, fast=1, slow=3, ma_type="sma", direction="any")
-        assert small.skipped_stale == 0
-        assert small.skipped_insufficient_history == 0
-
-        crossover_loader._scan_cached.cache_clear()
-        crossover_loader._load_wide_cached.cache_clear()
+        assert small.evaluated == before_small.evaluated + 2
+        assert small.skipped_stale == before_small.skipped_stale
+        assert small.skipped_insufficient_history == before_small.skipped_insufficient_history
+        assert gap_id not in small.matches.index  # flat prices, no crossover -- just checking it wasn't skipped
 
         # Larger slow: warmup_bars(10, "sma") = 11, already wider than the
         # tolerance window -- this case worked correctly even before the
         # fix, and must keep working the same way.
+        _clear_caches()
         large = crossover_loader.run_scan(db, fast=1, slow=10, ma_type="sma", direction="any")
-        assert large.skipped_stale == 0
-        assert large.skipped_insufficient_history == 0
-
-        assert gap_id not in small.matches.index  # flat prices, no crossover -- just checking it wasn't skipped
+        assert large.evaluated == before_large.evaluated + 2
+        assert large.skipped_stale == before_large.skipped_stale
+        assert large.skipped_insufficient_history == before_large.skipped_insufficient_history
         assert gap_id not in large.matches.index

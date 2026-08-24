@@ -74,7 +74,7 @@ def load_wide(cutoff: date) -> pd.DataFrame:
     return wide.ffill(limit=STALE_TOLERANCE_DAYS)
 
 
-@lru_cache(maxsize=32)
+@lru_cache(maxsize=4)
 def _load_wide_cached(n_bars: int, as_of: date) -> pd.DataFrame:
     cutoff, _ = resolve_window(n_bars)
     return load_wide(cutoff)

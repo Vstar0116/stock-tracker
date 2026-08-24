@@ -83,9 +83,17 @@ def scan_crossover(payload: ScanRequest, db: Session = Depends(get_db)) -> ScanR
     instrument_ids = list(result.matches.index)
     rows = {}
     if instrument_ids:
+        # LEFT OUTER JOIN from Instrument, not an inner join: load_wide
+        # (crossover_loader) deliberately forward-fills short gaps within
+        # STALE_TOLERANCE_DAYS, so a match can legitimately have no
+        # DailyPrice row on the exact as_of date (trading halt, illiquid
+        # smallcap with a sparse bhavcopy). An inner join here would
+        # silently drop those matches after the scan already found them --
+        # canceling the point of the forward-fill tolerance. A missing
+        # DailyPrice row now just yields latest_close=None instead.
         for inst, close in db.execute(
             select(Instrument, DailyPrice.adjusted_close)
-            .join(DailyPrice, (DailyPrice.instrument_id == Instrument.id) & (DailyPrice.trade_date == result.as_of))
+            .outerjoin(DailyPrice, (DailyPrice.instrument_id == Instrument.id) & (DailyPrice.trade_date == result.as_of))
             .where(Instrument.id.in_(instrument_ids))
         ).all():
             rows[inst.id] = (inst, close)
@@ -100,6 +108,11 @@ def scan_crossover(payload: ScanRequest, db: Session = Depends(get_db)) -> ScanR
             signal=signal,
         )
         for instrument_id, signal in result.matches.items()
+        # Genuine can't-happen guard only: an Instrument row disappearing
+        # between the scan and this hydration query (e.g. deleted
+        # concurrently). Not a way to filter out legitimately-matched,
+        # not-priced-today instruments -- the outer join above already
+        # keeps those, with latest_close=None.
         if instrument_id in rows
     ]
 

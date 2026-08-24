@@ -514,3 +514,59 @@ class TestHealth:
         resp = client.get("/health")
         assert resp.status_code == 503
         assert resp.json() == {"detail": "unhealthy"}
+
+
+class TestInstrumentCrossover:
+    def test_returns_series_for_valid_periods(self, client, db, owner):
+        from app.models import DailyPrice, Instrument
+        from datetime import date, timedelta
+
+        inst = Instrument(symbol="XOVR", exchange="NSE", company_name="Crossover Co", is_active=True)
+        db.add(inst)
+        db.flush()
+        start = date(2026, 1, 1)
+        for i, close in enumerate([10, 10, 10, 10, 10, 10, 30, 30, 30]):
+            db.add(DailyPrice(
+                instrument_id=inst.id, trade_date=start + timedelta(days=i),
+                open=close, high=close, low=close, close=close, adjusted_close=close, volume=100,
+            ))
+        db.flush()
+
+        resp = client.get(
+            f"/api/instruments/{inst.id}/crossover",
+            params={"fast": 2, "slow": 3, "ma_type": "sma"},
+            headers=_auth(owner),
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["instrument_id"] == inst.id
+        assert any(p["signal"] == "crossed_above" for p in body["points"])
+
+    def test_rejects_fast_greater_than_slow(self, client, db, owner):
+        from app.models import DailyPrice, Instrument
+        from datetime import date
+
+        inst = Instrument(symbol="BAD", exchange="NSE", company_name="Bad Co", is_active=True)
+        db.add(inst)
+        db.flush()
+        db.add(DailyPrice(instrument_id=inst.id, trade_date=date(2026, 1, 1), open=1, high=1, low=1, close=1, adjusted_close=1, volume=1))
+        db.flush()
+
+        resp = client.get(
+            f"/api/instruments/{inst.id}/crossover",
+            params={"fast": 50, "slow": 20, "ma_type": "sma"},
+            headers=_auth(owner),
+        )
+        assert resp.status_code == 422
+
+    def test_404_for_unknown_instrument(self, client, owner):
+        resp = client.get(
+            "/api/instruments/999999/crossover",
+            params={"fast": 9, "slow": 21, "ma_type": "ema"},
+            headers=_auth(owner),
+        )
+        assert resp.status_code == 404
+
+    def test_requires_auth(self, client):
+        resp = client.get("/api/instruments/1/crossover", params={"fast": 9, "slow": 21, "ma_type": "ema"})
+        assert resp.status_code == 401

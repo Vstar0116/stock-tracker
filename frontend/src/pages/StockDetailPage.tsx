@@ -1,9 +1,11 @@
+import { useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { TradingViewChart } from '../components/TradingViewChart'
+import { apiFetch, ApiError } from '../lib/api'
 import { changeVisual, ChangeGlyph, fmtNum, fmtPct, fmtPrice, indianNum } from '../lib/format'
 import { usePageHeader } from '../lib/pageHeader'
 import { useFetch } from '../lib/useFetch'
-import type { InstrumentDetail, Page, PriceOut } from '../lib/types'
+import type { CrossoverSeriesOut, InstrumentDetail, Page, PriceOut } from '../lib/types'
 
 interface IndicatorRow {
   label: string
@@ -27,6 +29,72 @@ function IndicatorCard({ kicker, rows }: { kicker: string; rows: IndicatorRow[] 
           </span>
         </div>
       ))}
+    </div>
+  )
+}
+
+function CustomCrossoverCard({ instrumentId }: { instrumentId: number }) {
+  const [fast, setFast] = useState('9')
+  const [slow, setSlow] = useState('21')
+  const [maType, setMaType] = useState<'sma' | 'ema'>('ema')
+  const [result, setResult] = useState<CrossoverSeriesOut | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const fastNum = Number(fast)
+  const slowNum = Number(slow)
+  const invalid = !Number.isInteger(fastNum) || !Number.isInteger(slowNum) || fastNum < 1 || fastNum >= slowNum || slowNum > 400
+
+  async function run() {
+    if (invalid) return
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await apiFetch<CrossoverSeriesOut>(
+        `/api/instruments/${instrumentId}/crossover?fast=${fastNum}&slow=${slowNum}&ma_type=${maType}`,
+      )
+      setResult(res)
+    } catch (err) {
+      setResult(null)
+      setError(err instanceof ApiError ? err.message : 'failed to compute crossover')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const last = result?.points[result.points.length - 1] ?? null
+
+  return (
+    <div className="card blueprint" style={{ padding: 16 }}>
+      <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
+      <div className="card-kicker">Custom crossover</div>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+        <input className="input" style={{ width: 64, fontSize: 13, padding: '5px 8px' }} value={fast} onChange={(e) => setFast(e.target.value)} placeholder="fast" />
+        <span style={{ color: 'var(--color-neutral-500)' }}>/</span>
+        <input className="input" style={{ width: 64, fontSize: 13, padding: '5px 8px' }} value={slow} onChange={(e) => setSlow(e.target.value)} placeholder="slow" />
+        <select className="input" style={{ width: 84, fontSize: 13, padding: '5px 8px' }} value={maType} onChange={(e) => setMaType(e.target.value as 'sma' | 'ema')}>
+          <option value="sma">SMA</option>
+          <option value="ema">EMA</option>
+        </select>
+        <button type="button" className="btn btn-secondary" style={{ fontSize: 12.5, padding: '5px 12px' }} onClick={run} disabled={invalid || loading}>
+          {loading ? 'Computing…' : 'Compute'}
+        </button>
+      </div>
+      {invalid && <p className="text-muted" style={{ fontSize: 12 }}>fast must be a positive integer less than slow (max 400).</p>}
+      {error && <p style={{ fontSize: 12, color: 'var(--color-neg-text)' }}>{error}</p>}
+      {last && (
+        <div style={{ fontSize: 13 }}>
+          <div>Fast ({fastNum}): <strong>{last.fast?.toFixed(2) ?? '—'}</strong></div>
+          <div>Slow ({slowNum}): <strong>{last.slow?.toFixed(2) ?? '—'}</strong></div>
+          <div style={{ marginTop: 6 }}>
+            {last.signal ? (
+              <span className="tag tag-accent">{last.signal === 'crossed_above' ? 'Crossed above' : 'Crossed below'} as of {last.trade_date}</span>
+            ) : (
+              <span className="text-muted">No crossover on the latest bar</span>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -145,6 +213,7 @@ export function StockDetailPage() {
               { label: '52W low', value: fmtPrice(ind?.low_52w) },
             ]}
           />
+          <CustomCrossoverCard instrumentId={instrumentId} />
           {ind && <p className="text-muted" style={{ fontSize: 11, margin: 0 }}>Indicators as of {ind.trade_date}</p>}
         </div>
       </div>

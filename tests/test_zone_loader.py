@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.db.session import engine
 from app.models import DailyPrice, Instrument
 from app.services.zone_classifier import ZoneParams
-from app.services.zone_loader import get_zone_for_instrument
+from app.services.zone_loader import _connect, _load_wide_market, _scan_cached, get_zone_for_instrument, run_zone_scan
 
 
 @pytest.fixture()
@@ -146,3 +146,76 @@ class TestGetZoneForInstrument:
 
         assert result.rvol is not None
         assert result.rvol > 1.0  # last day's volume is well above its own trailing average
+
+
+def _recent_trade_dates(db, n: int) -> list[date]:
+    """Anchor test data to the real market calendar already in the dev DB,
+    not a hardcoded date range -- a hardcoded range breaks the moment real
+    data shares the table (see the crossover feature's Task 8 postmortem)."""
+    rows = (
+        db.query(DailyPrice.trade_date)
+        .distinct()
+        .order_by(DailyPrice.trade_date.desc())
+        .limit(n)
+        .all()
+    )
+    return sorted(r[0] for r in rows)
+
+
+class TestRunZoneScan:
+    def test_finds_a_seeded_instrument_and_classifies_it(self, db, monkeypatch):
+        import contextlib
+        monkeypatch.setattr("app.services.zone_loader._connect", lambda: contextlib.nullcontext(db.connection()))
+        _scan_cached.cache_clear()
+
+        params = ZoneParams(macro_sma_period=10, fast_ema_period=3, slow_ema_period=5, rsi_period=5, atr_period=5, rvol_period=5)
+        needed = params.max_window + 5
+        dates = _recent_trade_dates(db, needed) if db.query(DailyPrice).count() > 0 else [date(2026, 1, 1) + timedelta(days=i) for i in range(needed)]
+        if len(dates) < needed:
+            dates = [date(2026, 1, 1) + timedelta(days=i) for i in range(needed)]
+
+        inst = Instrument(symbol="SCANTEST", exchange="NSE", company_name="Scan Test Co", is_active=True)
+        db.add(inst)
+        db.flush()
+        for i, d in enumerate(dates):
+            db.add(DailyPrice(
+                instrument_id=inst.id, trade_date=d,
+                open=Decimal("100"), high=Decimal("101"), low=Decimal("99"),
+                close=Decimal("100"), adjusted_close=Decimal("100"), volume=100000,
+            ))
+        db.flush()
+
+        result = run_zone_scan(db, params)
+
+        tickers = {m.ticker for m in result.matches}
+        skipped_tickers = {s["ticker"] for s in result.skipped}
+        assert "SCANTEST" in tickers or "SCANTEST" in skipped_tickers
+        assert result.evaluated >= 1
+
+    def test_sorted_by_zone_then_rsi_ascending(self, db, monkeypatch):
+        import contextlib
+        monkeypatch.setattr("app.services.zone_loader._connect", lambda: contextlib.nullcontext(db.connection()))
+        _scan_cached.cache_clear()
+
+        params = ZoneParams()
+        result = run_zone_scan(db, params)
+
+        zone_order = {"A": 0, "B": 1, "C": 2, "D": 3, "Unclassified": 4}
+        zones_seen = [zone_order[m.zone] for m in result.matches]
+        assert zones_seen == sorted(zones_seen)
+        # within each zone, RSI ascending
+        for i in range(1, len(result.matches)):
+            if result.matches[i].zone == result.matches[i - 1].zone:
+                assert result.matches[i].rsi >= result.matches[i - 1].rsi
+
+    def test_repeat_call_same_params_is_a_cache_hit(self, db, monkeypatch):
+        import contextlib
+        monkeypatch.setattr("app.services.zone_loader._connect", lambda: contextlib.nullcontext(db.connection()))
+        _scan_cached.cache_clear()
+
+        params = ZoneParams()
+        first = run_zone_scan(db, params)
+        second = run_zone_scan(db, params)
+
+        assert first.cached is False
+        assert second.cached is True

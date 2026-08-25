@@ -3,9 +3,10 @@
 Run with: pytest tests/test_zone_classifier.py -v
 """
 
+import pandas as pd
 import pytest
 
-from app.services.zone_classifier import ZoneParams, classify_zone
+from app.services.zone_classifier import ZoneParams, _zone_for, classify_zone, classify_zones_wide
 
 
 class TestZoneParamsValidation:
@@ -151,3 +152,66 @@ class TestClassifyZoneUnclassifiedFallthrough:
         )
         assert zone == "Unclassified"
         assert zone_label == "Unclassified"
+
+
+class TestClassifyZonesWideParity:
+    """The wide path recomputes the D/C/B/A rules independently as vectorized
+    boolean masks (for speed across ~7,500 instruments) rather than calling
+    the scalar path per row -- this test is the only thing that catches the
+    two implementations drifting apart."""
+
+    def test_wide_and_scalar_agree_across_many_cases(self):
+        params = ZoneParams()
+        # A grid of hand-picked (rsi, price, macro_sma, fast_ema, slow_ema)
+        # tuples spanning every zone, including the boundary and gap cases
+        # from TestClassifyZoneBoundaries.
+        cases = [
+            (54.9, 100.0, 90.0, 100.0, 95.0),   # A
+            (55.0, 100.0, 90.0, 100.0, 95.0),   # Unclassified (gap)
+            (56.0, 100.0, 90.0, 100.0, 95.0),   # B
+            (65.0, 100.0, 90.0, 100.0, 95.0),   # B
+            (66.0, 100.0, 90.0, 100.0, 95.0),   # C
+            (71.0, 100.0, 90.0, 100.0, 95.0),   # C
+            (72.0, 100.0, 90.0, 100.0, 95.0),   # D (RSI)
+            (30.0, 80.0, 90.0, 85.0, 88.0),     # D (trend filter overrides low RSI)
+            (40.0, 89.0, 90.0, 89.0, 88.0),     # Unclassified (price not > macro_sma)
+            (40.0, 110.0, 90.0, 100.0, 100.0),  # Unclassified (not near either EMA)
+            (40.0, 101.5, 90.0, 100.0, 80.0),   # A (near fast EMA)
+            (40.0, 101.5, 90.0, 80.0, 100.0),   # A (near slow EMA)
+        ]
+        rsi = pd.Series([c[0] for c in cases])
+        price = pd.Series([c[1] for c in cases])
+        macro_sma = pd.Series([c[2] for c in cases])
+        fast_ema = pd.Series([c[3] for c in cases])
+        slow_ema = pd.Series([c[4] for c in cases])
+
+        wide_result = classify_zones_wide(rsi, price, macro_sma, fast_ema, slow_ema, params)
+
+        for i, case in enumerate(cases):
+            expected = _zone_for(*case, params)
+            assert wide_result["zone"].iloc[i] == expected, f"case {i} {case}: expected {expected}"
+
+    def test_wide_preserves_input_index(self):
+        params = ZoneParams()
+        idx = pd.Index([501, 502, 503], name="instrument_id")
+        rsi = pd.Series([40.0, 60.0, 80.0], index=idx)
+        price = pd.Series([100.0, 100.0, 100.0], index=idx)
+        macro_sma = pd.Series([90.0, 90.0, 90.0], index=idx)
+        fast_ema = pd.Series([100.0, 100.0, 100.0], index=idx)
+        slow_ema = pd.Series([95.0, 95.0, 95.0], index=idx)
+
+        result = classify_zones_wide(rsi, price, macro_sma, fast_ema, slow_ema, params)
+        assert list(result.index) == [501, 502, 503]
+
+    def test_wide_handles_zero_ema_without_dividing_by_zero(self):
+        """A defensive edge case: an EMA of exactly 0 must not raise or
+        produce inf/NaN propagating into the zone decision."""
+        params = ZoneParams()
+        rsi = pd.Series([40.0])
+        price = pd.Series([100.0])
+        macro_sma = pd.Series([90.0])
+        fast_ema = pd.Series([0.0])
+        slow_ema = pd.Series([95.0])
+
+        result = classify_zones_wide(rsi, price, macro_sma, fast_ema, slow_ema, params)
+        assert result["zone"].iloc[0] in ("A", "Unclassified", "B", "C", "D")  # must not raise

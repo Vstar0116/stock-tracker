@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pandas as pd
+
 ZONE_LABELS = {
     "A": "Pullback at Support",
     "B": "Mid-RSI Above Trend",
@@ -106,3 +108,49 @@ def classify_zone(
     zone = _zone_for(rsi, price, macro_sma, fast_ema, slow_ema, params)
     reason = _reason_for(zone, rsi, price, macro_sma, fast_ema, slow_ema, params)
     return zone, ZONE_LABELS[zone], reason
+
+
+def classify_zones_wide(
+    rsi: pd.Series, price: pd.Series, macro_sma: pd.Series, fast_ema: pd.Series, slow_ema: pd.Series,
+    params: ZoneParams,
+) -> pd.DataFrame:
+    """Same rules as classify_zone, vectorized across instruments. All five
+    inputs must be same-shaped pd.Series indexed by instrument_id (one row =
+    one instrument's latest bar). Returns a DataFrame with zone/zone_label/
+    reason columns, same index as the inputs.
+
+    The zone/zone_label columns come from vectorized boolean masks (fast --
+    this is the O(instruments) step, not O(instruments x days)). The reason
+    column is built with a per-row loop over already-computed scalars, which
+    is cheap (string formatting, not indicator math) and reuses _reason_for
+    so the text matches classify_zone's wording exactly.
+    """
+    d_mask = (rsi >= params.rsi_zone_d_min) | ((price < macro_sma) & (price < slow_ema))
+
+    c_lo, c_hi = params.rsi_zone_c_range
+    c_mask = ~d_mask & rsi.between(c_lo, c_hi)
+
+    b_lo, b_hi = params.rsi_zone_b_range
+    b_mask = ~d_mask & ~c_mask & rsi.between(b_lo, b_hi) & (price > macro_sma)
+
+    fast_safe = fast_ema.replace(0, float("nan"))
+    slow_safe = slow_ema.replace(0, float("nan"))
+    fast_near = ((price - fast_ema).abs() / fast_safe <= params.near_ema_pct).fillna(False)
+    slow_near = ((price - slow_ema).abs() / slow_safe <= params.near_ema_pct).fillna(False)
+    near_ema = fast_near | slow_near
+    a_mask = ~d_mask & ~c_mask & ~b_mask & (rsi < params.rsi_zone_a_max) & (price > macro_sma) & near_ema
+
+    zone = pd.Series("Unclassified", index=rsi.index)
+    zone[d_mask] = "D"
+    zone[c_mask] = "C"
+    zone[b_mask] = "B"
+    zone[a_mask] = "A"
+
+    reason = pd.Series(
+        [
+            _reason_for(z, r, p, m, f, s, params)
+            for z, r, p, m, f, s in zip(zone, rsi, price, macro_sma, fast_ema, slow_ema)
+        ],
+        index=rsi.index,
+    )
+    return pd.DataFrame({"zone": zone, "zone_label": zone.map(ZONE_LABELS), "reason": reason})

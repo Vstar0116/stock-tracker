@@ -7,6 +7,7 @@ class InstrumentOut(BaseModel):
     id: int
     symbol: str
     exchange: str
+    bse_scrip_code: str | None
     company_name: str
     series: str | None
     sector: str | None

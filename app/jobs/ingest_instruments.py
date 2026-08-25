@@ -46,6 +46,7 @@ def fetch_nse_instruments() -> list[dict]:
         rows.append(
             {
                 "symbol": row["SYMBOL"],
+                "bse_scrip_code": None,
                 "isin": row.get("ISIN NUMBER") or None,
                 "company_name": row["NAME OF COMPANY"],
                 "series": row.get("SERIES") or None,
@@ -71,21 +72,27 @@ def fetch_bse_instruments() -> list[dict]:
     params = {"scripcode": "", "Group": "", "industry": "", "segment": "Equity", "status": "Active"}
     resp = httpx.get(BSE_SCRIP_LIST_URL, headers=headers, params=params, timeout=30)
     resp.raise_for_status()
+    return [_bse_row_to_dict(r) for r in resp.json()]
 
-    rows = []
-    for r in resp.json():
-        rows.append(
-            {
-                "symbol": r["scrip_id"],
-                "isin": r.get("ISIN_NUMBER") or None,
-                "company_name": r.get("Issuer_Name") or r.get("Scrip_Name"),
-                "series": r.get("GROUP") or None,
-                "sector": None,
-                "industry": r.get("INDUSTRY") or None,
-                "listed_date": None,
-            }
-        )
-    return rows
+
+def _bse_row_to_dict(r: dict) -> dict:
+    """Map one row of BSE's ListofScripData response to our instrument shape.
+
+    `scrip_id` (e.g. "ABB") is BSE's text short code -- what we store as `symbol`,
+    consistent with NSE's text symbols. `SCRIP_CD` (e.g. "500002") is BSE's numeric
+    scrip code, which is what TradingView's `BSE:` chart prefix actually resolves --
+    `scrip_id` alone 404s there. Captured separately so callers needing either have it.
+    """
+    return {
+        "symbol": r["scrip_id"],
+        "bse_scrip_code": r.get("SCRIP_CD") or None,
+        "isin": r.get("ISIN_NUMBER") or None,
+        "company_name": r.get("Issuer_Name") or r.get("Scrip_Name"),
+        "series": r.get("GROUP") or None,
+        "sector": None,
+        "industry": r.get("INDUSTRY") or None,
+        "listed_date": None,
+    }
 
 
 def upsert_instruments(db: Session, exchange: str, rows: list[dict], now: datetime) -> None:
@@ -94,6 +101,7 @@ def upsert_instruments(db: Session, exchange: str, rows: list[dict], now: dateti
             {
                 "symbol": r["symbol"],
                 "exchange": exchange,
+                "bse_scrip_code": r["bse_scrip_code"],
                 "isin": r["isin"],
                 "company_name": r["company_name"],
                 "series": r["series"],
@@ -110,6 +118,7 @@ def upsert_instruments(db: Session, exchange: str, rows: list[dict], now: dateti
     stmt = stmt.on_conflict_do_update(
         index_elements=[Instrument.symbol, Instrument.exchange],
         set_={
+            "bse_scrip_code": stmt.excluded.bse_scrip_code,
             "isin": stmt.excluded.isin,
             "company_name": stmt.excluded.company_name,
             "series": stmt.excluded.series,

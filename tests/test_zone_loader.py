@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.db.session import engine
 from app.models import DailyPrice, Instrument
 from app.services.zone_classifier import ZoneParams
-from app.services.zone_loader import _connect, _load_wide_market, _scan_cached, get_zone_for_instrument, run_zone_scan
+from app.services.zone_loader import _scan_cached, get_zone_for_instrument, run_zone_scan
 
 
 @pytest.fixture()

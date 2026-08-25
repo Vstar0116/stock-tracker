@@ -3,11 +3,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.alerts import router as alerts_router
 from app.api.auth import router as auth_router
+from app.api.crossover import router as crossover_router
 from app.api.health import router as health_router
 from app.api.instruments import router as instruments_router
 from app.api.screens import router as screens_router
 from app.api.status import router as status_router
 from app.api.watchlists import router as watchlists_router
+from app.api.zone import router as zone_router
 from app.config import settings
 from app.security_headers import SecurityHeadersMiddleware
 
@@ -36,8 +38,10 @@ app.add_middleware(
 
 app.include_router(health_router)
 app.include_router(auth_router)
+app.include_router(crossover_router)
 app.include_router(instruments_router)
 app.include_router(watchlists_router)
 app.include_router(screens_router)
 app.include_router(alerts_router)
 app.include_router(status_router)
+app.include_router(zone_router)

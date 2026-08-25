@@ -13,6 +13,11 @@ class Instrument(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     symbol: Mapped[str] = mapped_column(String(20), nullable=False)
     exchange: Mapped[str] = mapped_column(String(10), nullable=False)
+    # BSE's numeric scrip code (e.g. "500002") -- distinct from `symbol`, which for
+    # BSE is BSE's own text scrip_id (e.g. "ABB"). TradingView's BSE: prefix only
+    # resolves the numeric code, not the text one. Always None for NSE instruments,
+    # which use `symbol` directly on TradingView.
+    bse_scrip_code: Mapped[str | None] = mapped_column(String(20))
     isin: Mapped[str | None] = mapped_column(String(12))
     company_name: Mapped[str] = mapped_column(String(200), nullable=False)
     series: Mapped[str | None] = mapped_column(String(10))

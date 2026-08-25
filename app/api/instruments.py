@@ -70,6 +70,7 @@ def get_instrument(instrument_id: int, db: Session = Depends(get_db)) -> Instrum
         id=instrument.id,
         symbol=instrument.symbol,
         exchange=instrument.exchange,
+        bse_scrip_code=instrument.bse_scrip_code,
         company_name=instrument.company_name,
         series=instrument.series,
         sector=instrument.sector,

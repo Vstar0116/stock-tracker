@@ -47,7 +47,7 @@ def ema(prices: pd.Series, window: int) -> pd.Series:
     return result.where(have_enough)
 
 
-def _wilder_smoothing(values: pd.Series, window: int) -> pd.Series:
+def _wilder_smoothing(values: pd.Series | pd.DataFrame, window: int) -> pd.Series | pd.DataFrame:
     """Wilder's smoothed moving average (used by RSI and ATR): seeded with a
     simple average of the first `window` values, then recursively smoothed as
 
@@ -55,8 +55,15 @@ def _wilder_smoothing(values: pd.Series, window: int) -> pd.Series:
 
     This is NOT the same as a plain EMA with alpha=1/window -- that uses a
     different (less accurate) seed. `values` must have no leading NaNs.
+
+    Works on a Series (one instrument) or a DataFrame (columns=instruments,
+    whole universe at once) -- the loop is over rows (trading days), so a
+    DataFrame call does ~250 iterations of vectorized cross-column arithmetic
+    instead of ~250 x N_INSTRUMENTS scalar iterations. `values * float("nan")`
+    builds an all-NaN container with the same shape/index/columns as the input,
+    whichever type it is.
     """
-    result = pd.Series(float("nan"), index=values.index)
+    result = values * float("nan")
     if len(values) < window:
         return result
     avg = values.iloc[:window].mean()
@@ -116,7 +123,7 @@ def macd(
     return pd.DataFrame({"macd": line, "macd_signal": signal_line, "macd_histogram": histogram})
 
 
-def atr(high: pd.Series, low: pd.Series, close: pd.Series, adjusted_close: pd.Series, window: int = ATR_WINDOW) -> pd.Series:
+def atr(high: pd.Series | pd.DataFrame, low: pd.Series | pd.DataFrame, close: pd.Series | pd.DataFrame, adjusted_close: pd.Series | pd.DataFrame, window: int = ATR_WINDOW) -> pd.Series | pd.DataFrame:
     """Average True Range using Wilder's original smoothing.
 
     daily_prices only stores adjusted_close (no adjusted high/low), so
@@ -131,16 +138,28 @@ def atr(high: pd.Series, low: pd.Series, close: pd.Series, adjusted_close: pd.Se
 
     Needs `window` price bars (True Range on the very first bar falls back
     to just high-low, since there's no previous close to gap against).
+
+    Accepts both Series (one instrument) and DataFrame (whole universe at once).
     """
     scale = adjusted_close / close
     adj_high = high * scale
     adj_low = low * scale
     prev_adj_close = adjusted_close.shift(1)
 
-    true_range = pd.concat(
-        [adj_high - adj_low, (adj_high - prev_adj_close).abs(), (adj_low - prev_adj_close).abs()],
-        axis=1,
-    ).max(axis=1)
+    tr_parts = [adj_high - adj_low, (adj_high - prev_adj_close).abs(), (adj_low - prev_adj_close).abs()]
+
+    # Compute element-wise max while preserving DataFrame structure
+    if isinstance(tr_parts[0], pd.DataFrame):
+        # For DataFrames: concatenate and take max for each original column
+        stacked = pd.concat(tr_parts, axis=1)
+        # Group by column name (handles duplicate names) and take max across rows
+        true_range = pd.DataFrame(
+            {col: stacked[col].max(axis=1) for col in stacked.columns.unique()},
+            index=stacked.index,
+        )
+    else:
+        # For Series: use original approach
+        true_range = pd.concat(tr_parts, axis=1).max(axis=1)
 
     return _wilder_smoothing(true_range, window)
 

@@ -131,3 +131,69 @@ class Test52WeekHighLow:
         assert low.iloc[251] == 1.0
         assert high.iloc[259] == 260.0
         assert low.iloc[259] == 9.0
+
+
+def test_wilder_smoothing_dataframe_matches_per_column_series():
+    from app.services.indicators import _wilder_smoothing
+
+    dates = pd.date_range("2026-01-01", periods=20, freq="D")
+    col_a = pd.Series([float(i) for i in range(20)], index=dates)
+    col_b = pd.Series([float(20 - i) for i in range(20)], index=dates)
+    wide = pd.DataFrame({"a": col_a, "b": col_b})
+
+    result_wide = _wilder_smoothing(wide, window=14)
+    result_a = _wilder_smoothing(col_a, window=14)
+    result_b = _wilder_smoothing(col_b, window=14)
+
+    pd.testing.assert_series_equal(result_wide["a"], result_a, check_names=False)
+    pd.testing.assert_series_equal(result_wide["b"], result_b, check_names=False)
+
+
+def test_wilder_smoothing_series_input_unchanged():
+    """Guards against the DataFrame generalization changing Series behavior --
+    this must produce byte-identical output to before the change."""
+    from app.services.indicators import _wilder_smoothing
+
+    dates = pd.date_range("2026-01-01", periods=20, freq="D")
+    values = pd.Series([float(i % 5) for i in range(20)], index=dates)
+    result = _wilder_smoothing(values, window=14)
+
+    assert pd.isna(result.iloc[12])
+    assert not pd.isna(result.iloc[13])
+    assert result.iloc[13] == values.iloc[:14].mean()
+
+
+def test_rsi_on_wide_dataframe_matches_per_column_rsi():
+    from app.services.indicators import rsi
+
+    dates = pd.date_range("2026-01-01", periods=30, freq="D")
+    col_a = pd.Series([100 + i * 0.5 for i in range(30)], index=dates)
+    col_b = pd.Series([100 - i * 0.3 for i in range(30)], index=dates)
+    wide = pd.DataFrame({"a": col_a, "b": col_b})
+
+    result_wide = rsi(wide, window=14)
+    pd.testing.assert_series_equal(result_wide["a"], rsi(col_a, window=14), check_names=False)
+    pd.testing.assert_series_equal(result_wide["b"], rsi(col_b, window=14), check_names=False)
+
+
+def test_atr_on_wide_dataframe_matches_per_column_atr():
+    from app.services.indicators import atr
+
+    dates = pd.date_range("2026-01-01", periods=30, freq="D")
+    high_a = pd.Series([102 + i * 0.5 for i in range(30)], index=dates)
+    low_a = pd.Series([98 + i * 0.5 for i in range(30)], index=dates)
+    close_a = pd.Series([100 + i * 0.5 for i in range(30)], index=dates)
+    high_b = high_a * 1.1
+    low_b = low_a * 1.1
+    close_b = close_a * 1.1
+    wide_high = pd.DataFrame({"a": high_a, "b": high_b})
+    wide_low = pd.DataFrame({"a": low_a, "b": low_b})
+    wide_close = pd.DataFrame({"a": close_a, "b": close_b})
+    wide_adj = wide_close
+
+    result_wide = atr(wide_high, wide_low, wide_close, wide_adj, window=14)
+    result_a = atr(high_a, low_a, close_a, close_a, window=14)
+    result_b = atr(high_b, low_b, close_b, close_b, window=14)
+
+    pd.testing.assert_series_equal(result_wide["a"], result_a, check_names=False)
+    pd.testing.assert_series_equal(result_wide["b"], result_b, check_names=False)

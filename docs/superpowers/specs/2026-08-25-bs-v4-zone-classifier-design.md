@@ -85,8 +85,8 @@ def classify_zones_wide(rsi, price, macro_sma, fast_ema, slow_ema, params) -> pd
 
 ### `zone_loader.py` (DB I/O, orchestration, caching)
 
-**Single-instrument path** (`get_zone_for_ticker`):
-1. Look up `Instrument` by `symbol` (case-insensitive) → 404 if not found.
+**Single-instrument path** (`get_zone_for_instrument`):
+1. Look up `Instrument` by `id` → 404 if not found (same pattern as the crossover feature's single-instrument endpoint).
 2. `load_price_history(db, instrument_id)` (existing function, reused as-is).
 3. If fewer than `max(macro_sma_period, slow_ema_period, rsi_period, atr_period, rvol_period) + 1` rows of history → return `zone: "Insufficient Data"` (all numeric fields `null`), not an error.
 4. Compute macro_sma/fast_ema/slow_ema via `sma()`/`ema()`, rsi via `rsi()`, atr via `atr()` (reusing the existing convention from `compute_indicators.py`: raw high/low/close + adjusted_close), volume_sma via `volume_sma()`, rvol = latest volume / latest volume_sma.
@@ -142,14 +142,17 @@ class ZoneScanResponse(BaseModel):
 ### `app/api/zone.py`
 
 ```
-GET /api/zone/{ticker}
-  Query params: one per ZoneParams field, all optional (default = ZoneParams() defaults).
-  404 if ticker unknown. 422 (via ZoneParams validation) if fast_ema_period >= slow_ema_period
-  or any range is malformed. Returns ZoneOut directly (single object, not wrapped).
+GET /api/zone/{instrument_id}
+  instrument_id: int. Query params: one per ZoneParams field, all optional
+  (default = ZoneParams() defaults). 404 if instrument_id unknown. 422 (via
+  ZoneParams validation) if fast_ema_period >= slow_ema_period or any range
+  is malformed. Returns ZoneOut directly (single object, not wrapped).
 
 GET /api/zone/scan
   Same query params. Returns ZoneScanResponse.
 ```
+
+**Deviation from the original request's `GET /api/zone/{ticker}`:** routes by `instrument_id: int`, matching the existing `GET /api/instruments/{instrument_id}/crossover` convention this codebase already established for the crossover feature. A bare ticker string is ambiguous — `symbol` alone isn't unique (NSE and BSE can list the same text symbol), only `(symbol, exchange)` is — and the frontend already navigates everywhere by `instrument_id`. Resolves the ambiguity without adding a second disambiguating query param.
 
 Same auth (`Depends(get_current_user)`), same DB dependency pattern as every other router in `app/api/`.
 

@@ -94,7 +94,13 @@ export function StockDetailPage() {
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20, alignItems: 'start' }}>
         <div className="card blueprint" style={{ padding: 16 }}>
           <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
-          <TradingViewChart symbol={`${instrument.exchange}:${instrument.symbol}`} />
+          <TradingViewChart
+            symbol={
+              instrument.exchange === 'BSE' && instrument.bse_scrip_code
+                ? `BSE:${instrument.bse_scrip_code}`
+                : `${instrument.exchange}:${instrument.symbol}`
+            }
+          />
 
           <div className="demo-head" style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--color-neutral-600)', margin: '20px 0 8px' }}>
             Recent price history

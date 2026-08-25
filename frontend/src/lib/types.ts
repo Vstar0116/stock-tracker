@@ -24,6 +24,7 @@ export interface InstrumentOut {
   id: number
   symbol: string
   exchange: string
+  bse_scrip_code: string | null
   company_name: string
   series: string | null
   sector: string | null

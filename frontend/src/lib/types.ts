@@ -184,3 +184,49 @@ export interface StatusDetailOut extends StatusOut {
   nl_screen_configured: boolean
   nl_screen_reachable: boolean
 }
+
+// Mirrors app/schemas/crossover.py
+
+export type MaType = 'sma' | 'ema'
+export type CrossoverSignal = 'crossed_above' | 'crossed_below'
+export type ScanDirection = CrossoverSignal | 'any'
+
+export interface CrossoverPoint {
+  trade_date: string
+  fast: number | null
+  slow: number | null
+  signal: CrossoverSignal | null
+}
+
+export interface CrossoverSeriesOut {
+  instrument_id: number
+  fast: number
+  slow: number
+  ma_type: MaType
+  points: CrossoverPoint[]
+}
+
+export interface ScanStats {
+  evaluated: number
+  matched: number
+  skipped_insufficient_history: number
+  skipped_stale: number
+  elapsed_ms: number
+  cached: boolean
+}
+
+export interface ScanMatchOut {
+  instrument_id: number
+  symbol: string
+  exchange: string
+  sector: string | null
+  latest_close: number | null
+  signal: CrossoverSignal
+}
+
+export interface ScanResponse {
+  as_of: string
+  params: { fast: number; slow: number; ma_type: MaType; direction: ScanDirection }
+  stats: ScanStats
+  matches: ScanMatchOut[]
+}

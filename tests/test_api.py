@@ -514,3 +514,184 @@ class TestHealth:
         resp = client.get("/health")
         assert resp.status_code == 503
         assert resp.json() == {"detail": "unhealthy"}
+
+
+class TestInstrumentCrossover:
+    def test_returns_series_for_valid_periods(self, client, db, owner):
+        from app.models import DailyPrice, Instrument
+        from datetime import date, timedelta
+
+        inst = Instrument(symbol="XOVR", exchange="NSE", company_name="Crossover Co", is_active=True)
+        db.add(inst)
+        db.flush()
+        start = date(2026, 1, 1)
+        for i, close in enumerate([10, 10, 10, 10, 10, 10, 30, 30, 30]):
+            db.add(DailyPrice(
+                instrument_id=inst.id, trade_date=start + timedelta(days=i),
+                open=close, high=close, low=close, close=close, adjusted_close=close, volume=100,
+            ))
+        db.flush()
+
+        resp = client.get(
+            f"/api/instruments/{inst.id}/crossover",
+            params={"fast": 2, "slow": 3, "ma_type": "sma"},
+            headers=_auth(owner),
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["instrument_id"] == inst.id
+        assert any(p["signal"] == "crossed_above" for p in body["points"])
+
+    def test_rejects_fast_greater_than_slow(self, client, db, owner):
+        from app.models import DailyPrice, Instrument
+        from datetime import date
+
+        inst = Instrument(symbol="BAD", exchange="NSE", company_name="Bad Co", is_active=True)
+        db.add(inst)
+        db.flush()
+        db.add(DailyPrice(instrument_id=inst.id, trade_date=date(2026, 1, 1), open=1, high=1, low=1, close=1, adjusted_close=1, volume=1))
+        db.flush()
+
+        resp = client.get(
+            f"/api/instruments/{inst.id}/crossover",
+            params={"fast": 50, "slow": 20, "ma_type": "sma"},
+            headers=_auth(owner),
+        )
+        assert resp.status_code == 422
+
+    def test_404_for_unknown_instrument(self, client, owner):
+        resp = client.get(
+            "/api/instruments/999999/crossover",
+            params={"fast": 9, "slow": 21, "ma_type": "ema"},
+            headers=_auth(owner),
+        )
+        assert resp.status_code == 404
+
+    def test_requires_auth(self, client):
+        resp = client.get("/api/instruments/1/crossover", params={"fast": 9, "slow": 21, "ma_type": "ema"})
+        assert resp.status_code == 401
+
+
+class TestCrossoverScan:
+    def test_finds_matches_across_instruments(self, client, db, owner, monkeypatch):
+        import contextlib
+
+        from sqlalchemy import text
+
+        from app.models import DailyPrice, Instrument
+        from app.services import crossover_loader
+
+        # crossover_loader.run_scan opens its OWN db connection for the
+        # cached, expensive part of the scan (see the module docstring in
+        # app/services/crossover_loader.py) rather than using the `db`
+        # session injected below -- so it can't see this test's
+        # SAVEPOINT-backed, uncommitted rows unless pointed at the same
+        # connection. Same pattern as tests/test_crossover_loader.py.
+        monkeypatch.setattr(crossover_loader, "_connect", lambda: contextlib.nullcontext(db.connection()))
+        crossover_loader._scan_cached.cache_clear()
+        crossover_loader._load_wide_cached.cache_clear()
+
+        # This dev DB now carries real, backfilled market data, and
+        # resolve_window/load_wide are legitimately whole-market queries --
+        # so seeded rows must land on real, already-existing trade dates
+        # (anchored to the current as_of) rather than a hardcoded date range
+        # that now falls outside the scan's window entirely. See
+        # tests/test_crossover_loader.py's _recent_trade_dates for the same
+        # pattern.
+        dates = sorted(
+            r[0]
+            for r in db.execute(
+                text("SELECT DISTINCT trade_date FROM daily_prices ORDER BY trade_date DESC LIMIT :n"),
+                {"n": 9},
+            ).fetchall()
+        )
+
+        crossing = Instrument(symbol="XOVR2", exchange="NSE", company_name="Crossing Co", sector="IT", is_active=True)
+        flat = Instrument(symbol="FLAT2", exchange="NSE", company_name="Flat Co", is_active=True)
+        db.add_all([crossing, flat])
+        db.flush()
+
+        # 8 flat bars then a jump on the real market's last 9 trading days --
+        # fast(2) crosses above slow(3) on the final bar.
+        for d, close in zip(dates, [10, 10, 10, 10, 10, 10, 10, 10, 30]):
+            db.add(DailyPrice(instrument_id=crossing.id, trade_date=d, open=close, high=close, low=close, close=close, adjusted_close=close, volume=100))
+        for d in dates:
+            db.add(DailyPrice(instrument_id=flat.id, trade_date=d, open=50, high=50, low=50, close=50, adjusted_close=50, volume=100))
+        db.flush()
+
+        resp = client.post(
+            "/api/scans/crossover",
+            json={"fast": 2, "slow": 3, "ma_type": "sma", "direction": "any"},
+            headers=_auth(owner),
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        symbols = {m["symbol"] for m in body["matches"]}
+        assert "XOVR2" in symbols
+        assert "FLAT2" not in symbols
+        assert body["stats"]["matched"] == len(body["matches"])
+
+    def test_stale_but_within_tolerance_match_has_null_latest_close(self, client, db, owner, monkeypatch):
+        """Regression test: load_wide (crossover_loader) forward-fills short
+        gaps within STALE_TOLERANCE_DAYS, so an instrument with no price row
+        on the exact as_of date can still be a genuine match. The API's
+        hydration query used to INNER JOIN on DailyPrice for
+        trade_date == as_of, silently dropping exactly these matches after
+        the scan had already found them. It must now show up with
+        latest_close: null instead of vanishing."""
+        import contextlib
+
+        from sqlalchemy import text
+
+        from app.models import DailyPrice, Instrument
+        from app.services import crossover_loader
+
+        monkeypatch.setattr(crossover_loader, "_connect", lambda: contextlib.nullcontext(db.connection()))
+        crossover_loader._scan_cached.cache_clear()
+        crossover_loader._load_wide_cached.cache_clear()
+
+        dates = sorted(
+            r[0]
+            for r in db.execute(
+                text("SELECT DISTINCT trade_date FROM daily_prices ORDER BY trade_date DESC LIMIT :n"),
+                {"n": 10},
+            ).fetchall()
+        )
+
+        stale = Instrument(symbol="STALEX", exchange="NSE", company_name="Stale Co", is_active=True)
+        db.add(stale)
+        db.flush()
+
+        # 8 real bars ending 2 trading days before as_of -- fast(2)/slow(5)
+        # SMA crosses above exactly on what becomes the scan's last bar once
+        # forward-filled. The last 2 real dates are deliberately left
+        # unseeded for this instrument to simulate a trading halt / sparse
+        # bhavcopy within STALE_TOLERANCE_DAYS (5 trading days).
+        closes = [46, 50, 23, 34, 49, 25, 36, 35]
+        for d, close in zip(dates[:8], closes):
+            db.add(DailyPrice(instrument_id=stale.id, trade_date=d, open=close, high=close, low=close, close=close, adjusted_close=close, volume=100))
+        db.flush()
+
+        resp = client.post(
+            "/api/scans/crossover",
+            json={"fast": 2, "slow": 5, "ma_type": "sma", "direction": "any"},
+            headers=_auth(owner),
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        match = next((m for m in body["matches"] if m["symbol"] == "STALEX"), None)
+        assert match is not None
+        assert match["signal"] == "crossed_above"
+        assert match["latest_close"] is None
+
+    def test_rejects_invalid_periods(self, client, owner):
+        resp = client.post(
+            "/api/scans/crossover",
+            json={"fast": 50, "slow": 20, "ma_type": "sma", "direction": "any"},
+            headers=_auth(owner),
+        )
+        assert resp.status_code == 422
+
+    def test_requires_auth(self, client):
+        resp = client.post("/api/scans/crossover", json={"fast": 9, "slow": 21, "ma_type": "ema", "direction": "any"})
+        assert resp.status_code == 401

@@ -15,6 +15,7 @@ the task that created this file):
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 SMA_WINDOWS = (20, 50, 100, 200)
@@ -148,18 +149,17 @@ def atr(high: pd.Series | pd.DataFrame, low: pd.Series | pd.DataFrame, close: pd
 
     tr_parts = [adj_high - adj_low, (adj_high - prev_adj_close).abs(), (adj_low - prev_adj_close).abs()]
 
-    # Compute element-wise max while preserving DataFrame structure
+    # Element-wise max across the three TR components: np.fmax skips NaN (correct
+    # for first-bar fallback where prev_adj_close is NaN) unlike np.maximum which
+    # would propagate it. Single vectorized expression works for both Series and
+    # DataFrame with no Python-level loops.
+    true_range_values = np.fmax(np.fmax(tr_parts[0].values, tr_parts[1].values), tr_parts[2].values)
+
+    # Reconstruct as the same type as input
     if isinstance(tr_parts[0], pd.DataFrame):
-        # For DataFrames: concatenate and take max for each original column
-        stacked = pd.concat(tr_parts, axis=1)
-        # Group by column name (handles duplicate names) and take max across rows
-        true_range = pd.DataFrame(
-            {col: stacked[col].max(axis=1) for col in stacked.columns.unique()},
-            index=stacked.index,
-        )
+        true_range = pd.DataFrame(true_range_values, index=tr_parts[0].index, columns=tr_parts[0].columns)
     else:
-        # For Series: use original approach
-        true_range = pd.concat(tr_parts, axis=1).max(axis=1)
+        true_range = pd.Series(true_range_values, index=tr_parts[0].index)
 
     return _wilder_smoothing(true_range, window)
 

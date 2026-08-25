@@ -695,3 +695,77 @@ class TestCrossoverScan:
     def test_requires_auth(self, client):
         resp = client.post("/api/scans/crossover", json={"fast": 9, "slow": 21, "ma_type": "ema", "direction": "any"})
         assert resp.status_code == 401
+
+
+class TestZoneClassifier:
+    # Note: the zone router requires auth (same `Depends(get_current_user)`
+    # pattern as every other router -- see app/api/crossover.py and this
+    # feature's design doc), so every request below needs `headers=_auth(owner)`.
+
+    def test_get_zone_unknown_instrument_404s(self, client, owner):
+        resp = client.get("/api/zone/999999", headers=_auth(owner))
+        assert resp.status_code == 404
+
+    def test_get_zone_invalid_params_422s(self, client, owner, instrument):
+        resp = client.get(
+            f"/api/zone/{instrument.id}",
+            params={"fast_ema_period": 21, "slow_ema_period": 21},
+            headers=_auth(owner),
+        )
+        assert resp.status_code == 422
+
+    def test_get_zone_insufficient_history(self, client, db, owner, instrument, today):
+        db.add(DailyPrice(
+            instrument_id=instrument.id, trade_date=today,
+            open=Decimal("100"), high=Decimal("101"), low=Decimal("99"),
+            close=Decimal("100"), adjusted_close=Decimal("100"), volume=1000,
+        ))
+        db.flush()
+
+        resp = client.get(f"/api/zone/{instrument.id}", headers=_auth(owner))
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["zone"] == "Insufficient Data"
+        assert body["rsi"] is None
+
+    def test_get_zone_full_history_classifies(self, client, db, owner, instrument, today):
+        for i in range(60):
+            d = today - timedelta(days=59 - i)
+            close = 100.0 + i * 0.5
+            db.add(DailyPrice(
+                instrument_id=instrument.id, trade_date=d,
+                open=Decimal(str(close)), high=Decimal(str(close * 1.01)), low=Decimal(str(close * 0.99)),
+                close=Decimal(str(close)), adjusted_close=Decimal(str(close)), volume=100000,
+            ))
+        db.flush()
+
+        resp = client.get(
+            f"/api/zone/{instrument.id}",
+            params={"macro_sma_period": 20, "fast_ema_period": 5, "slow_ema_period": 10, "rsi_period": 14, "atr_period": 14, "rvol_period": 20},
+            headers=_auth(owner),
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["zone"] in ("A", "B", "C", "D", "Unclassified")
+        assert body["ticker"] == instrument.symbol
+
+    def test_scan_returns_params_and_evaluated_count(self, client, owner):
+        resp = client.get("/api/zone/scan", headers=_auth(owner))
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "as_of" in body
+        assert "matches" in body
+        assert "skipped" in body
+        assert body["evaluated"] >= 0
+
+    def test_scan_matches_sorted_by_zone_then_rsi(self, client, owner):
+        resp = client.get("/api/zone/scan", headers=_auth(owner))
+        assert resp.status_code == 200
+        matches = resp.json()["matches"]
+        zone_order = {"A": 0, "B": 1, "C": 2, "D": 3, "Unclassified": 4}
+        zones_seen = [zone_order[m["zone"]] for m in matches]
+        assert zones_seen == sorted(zones_seen)
+
+    def test_requires_auth(self, client):
+        resp = client.get("/api/zone/scan")
+        assert resp.status_code == 401

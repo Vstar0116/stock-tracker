@@ -174,3 +174,21 @@ Same auth (`Depends(get_current_user)`), same DB dependency pattern as every oth
 - `zone_loader.py`: insufficient-history test, NaN/skipped-instrument test (present in `skipped`, absent from `matches`, still counted in `evaluated`), cache-hit test (repeat call with identical params is a cache hit), `_wilder_smoothing` DataFrame-vs-Series-equivalence test (computing RSI/ATR one instrument at a time vs. all at once in a wide frame gives the same numbers).
 - `indicators.py`: existing Series-based tests must pass unmodified; add DataFrame-input tests for `_wilder_smoothing`/`rsi`/`atr`.
 - `api/zone.py`: single-ticker happy path, 404 unknown ticker, 422 invalid params, scan happy path (sort order: zone A→D, RSI ascending within zone), scan with a mixed matches/skipped universe.
+
+## Measured performance (Task 8)
+
+Measured via `python -m scripts.bench_zone_scan` against the local dev DB with real backfilled market data (7,533 active instruments, 3,899,947 `daily_prices` rows, `as_of=2026-08-20`):
+
+```
+defaults (macro_sma_period=200, as_of=2026-08-20):
+  cold run (query+compute): 11056ms
+  warm run (cache hit):     79ms
+  evaluated=7376 matched=6036 skipped=1340
+
+shorter-macro (macro_sma_period=50, as_of=2026-08-20):
+  cold run (query+compute): 3564ms
+  warm run (cache hit):     82ms
+  evaluated=7342 matched=6646 skipped=696
+```
+
+The default 200-day macro SMA window drives most of the cold-run cost (11s vs. 3.6s for the 50-day scenario) — more history to pull and forward-fill per instrument across the whole market. Both scenarios' warm runs are near-instant (<100ms), confirming the `lru_cache` keyed on `(params, as_of)` is effective for repeat scans within the same trading day. The 11s default cold run is noticeably slower than the crossover feature's comparable-window numbers, consistent with this feature computing five indicators per instrument instead of two crossing MAs.

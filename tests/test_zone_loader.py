@@ -71,6 +71,32 @@ class TestGetZoneForInstrument:
         assert result.rsi is None
         assert result.price is None
 
+    def test_exact_boundary_bars_not_insufficient_data(self, db, instrument):
+        # Pins the "needed" length to the true per-indicator minimum: each
+        # indicator's *own* NaN rule (see app/services/indicators.py) needs
+        # only `window` total bars, except rsi() which needs `window + 1`
+        # (its internal diff() drops the first observation). Here
+        # macro_sma_period/rvol_period (20) dominate rsi_period+1 (15), so
+        # an instrument with exactly 20 bars has every indicator fully
+        # computable on its latest bar -- it must NOT be "Insufficient Data".
+        params = ZoneParams(
+            macro_sma_period=20, fast_ema_period=5, slow_ema_period=10,
+            rsi_period=14, atr_period=14, rvol_period=20,
+        )
+        needed = max(
+            params.macro_sma_period, params.slow_ema_period,
+            params.atr_period, params.rvol_period, params.rsi_period + 1,
+        )
+        assert needed == 20  # sanity: dominated by macro_sma/rvol, not rsi_period + 1
+        closes = [100.0 + i * 0.3 for i in range(needed)]
+        _seed_prices(db, instrument.id, closes, start=date(2026, 1, 1))
+
+        result = get_zone_for_instrument(db, instrument.id, params)
+
+        assert result.zone != "Insufficient Data"
+        assert result.rsi is not None
+        assert result.price == pytest.approx(closes[-1])
+
     def test_full_history_classifies_a_real_zone(self, db, instrument):
         # Small periods so 60 bars is enough to have real, non-NaN values.
         params = ZoneParams(macro_sma_period=20, fast_ema_period=5, slow_ema_period=10, rsi_period=14, atr_period=14, rvol_period=20)

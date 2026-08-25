@@ -48,7 +48,10 @@ def get_zone_for_instrument(db: Session, instrument_id: int, params: ZoneParams)
         return None
 
     history = load_price_history(db, instrument_id)
-    needed = params.max_window + 1
+    # Only rsi() needs a +1 bar (its internal diff() drops the first
+    # observation before Wilder smoothing starts) -- sma/ema/atr/volume_sma
+    # all become non-NaN at exactly `window` bars. See app/services/indicators.py.
+    needed = max(params.macro_sma_period, params.slow_ema_period, params.atr_period, params.rvol_period, params.rsi_period + 1)
     if len(history) < needed:
         return _insufficient_data(instrument.symbol, f"needs {needed} bars of history, has {len(history)}")
 

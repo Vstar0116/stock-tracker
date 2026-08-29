@@ -58,6 +58,7 @@ export interface InstrumentDetail extends InstrumentOut {
   latest_close: number | null
   day_change_abs: number | null
   day_change_pct: number | null
+  tv_symbol: string
 }
 
 export interface PriceOut {
@@ -229,4 +230,33 @@ export interface ScanResponse {
   params: { fast: number; slow: number; ma_type: MaType; direction: ScanDirection }
   stats: ScanStats
   matches: ScanMatchOut[]
+}
+
+// Mirrors app/schemas/zone.py
+
+export type Zone = 'A' | 'B' | 'C' | 'D' | 'Unclassified' | 'Insufficient Data'
+
+export interface ZoneOut {
+  instrument_id: number
+  ticker: string
+  zone: Zone
+  zone_label: string
+  rsi: number | null
+  price: number | null
+  macro_sma: number | null
+  fast_ema: number | null
+  slow_ema: number | null
+  atr_band_lower: number | null
+  atr_band_upper: number | null
+  rvol: number | null
+  reason: string
+}
+
+export interface ZoneScanResponse {
+  as_of: string
+  matches: ZoneOut[]
+  skipped: { ticker: string; reason: string }[]
+  evaluated: number
+  cached: boolean
+  elapsed_ms: number
 }

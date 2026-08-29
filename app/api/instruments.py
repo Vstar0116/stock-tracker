@@ -13,6 +13,25 @@ from app.schemas.instrument import IndicatorOut, InstrumentDetail, InstrumentOut
 router = APIRouter(prefix="/api/instruments", tags=["instruments"], dependencies=[Depends(get_current_user)])
 
 
+def _tv_symbol(db: Session, instrument: Instrument) -> str:
+    """TradingView's free widget covers NSE far more completely than BSE --
+    most BSE small/micro-caps 404 there even with the correct numeric scrip
+    code. Prefer the NSE listing of the same company (matched by ISIN) when
+    one exists; only fall back to the BSE line if this instrument has no
+    NSE-listed sibling."""
+    if instrument.exchange != "BSE" or not instrument.isin:
+        return f"{instrument.exchange}:{instrument.symbol}"
+
+    nse_sibling = db.execute(
+        select(Instrument.symbol).where(
+            Instrument.isin == instrument.isin, Instrument.exchange == "NSE", Instrument.is_active
+        )
+    ).scalar_one_or_none()
+    if nse_sibling:
+        return f"NSE:{nse_sibling}"
+    return f"BSE:{instrument.bse_scrip_code}" if instrument.bse_scrip_code else f"BSE:{instrument.symbol}"
+
+
 @router.get("", response_model=Page[InstrumentOut])
 def list_instruments(
     q: str | None = Query(None, description="matches symbol or company name"),
@@ -83,6 +102,7 @@ def get_instrument(instrument_id: int, db: Session = Depends(get_db)) -> Instrum
         latest_close=latest_close,
         day_change_abs=day_change_abs,
         day_change_pct=day_change_pct,
+        tv_symbol=_tv_symbol(db, instrument),
     )
 
 

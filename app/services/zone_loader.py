@@ -27,6 +27,7 @@ from app.services.zone_classifier import ZoneParams, classify_zone, classify_zon
 
 @dataclass(frozen=True)
 class ZoneResult:
+    instrument_id: int
     ticker: str
     zone: str
     zone_label: str
@@ -41,9 +42,9 @@ class ZoneResult:
     reason: str
 
 
-def _insufficient_data(ticker: str, reason: str) -> ZoneResult:
+def _insufficient_data(instrument_id: int, ticker: str, reason: str) -> ZoneResult:
     return ZoneResult(
-        ticker=ticker, zone="Insufficient Data", zone_label="Insufficient Data",
+        instrument_id=instrument_id, ticker=ticker, zone="Insufficient Data", zone_label="Insufficient Data",
         rsi=None, price=None, macro_sma=None, fast_ema=None, slow_ema=None,
         atr_band_lower=None, atr_band_upper=None, rvol=None, reason=reason,
     )
@@ -61,7 +62,7 @@ def get_zone_for_instrument(db: Session, instrument_id: int, params: ZoneParams)
     # all become non-NaN at exactly `window` bars. See app/services/indicators.py.
     needed = max(params.macro_sma_period, params.slow_ema_period, params.atr_period, params.rvol_period, params.rsi_period + 1)
     if len(history) < needed:
-        return _insufficient_data(instrument.symbol, f"needs {needed} bars of history, has {len(history)}")
+        return _insufficient_data(instrument.id, instrument.symbol, f"needs {needed} bars of history, has {len(history)}")
 
     price = history["adjusted_close"].astype(float)
     macro_sma_s = sma(price, params.macro_sma_period)
@@ -81,7 +82,7 @@ def get_zone_for_instrument(db: Session, instrument_id: int, params: ZoneParams)
         "volume": volume.iloc[-1], "volume_sma": vol_sma_s.iloc[-1],
     }
     if any(pd.isna(v) for v in latest.values()):
-        return _insufficient_data(instrument.symbol, "latest bar has NaN indicator values")
+        return _insufficient_data(instrument.id, instrument.symbol, "latest bar has NaN indicator values")
 
     zone, zone_label, reason = classify_zone(
         latest["rsi"], latest["price"], latest["macro_sma"], latest["fast_ema"], latest["slow_ema"], params,
@@ -91,7 +92,7 @@ def get_zone_for_instrument(db: Session, instrument_id: int, params: ZoneParams)
     atr_band_upper = latest["slow_ema"] + params.atr_limit_multiplier * latest["atr"] if zone == "B" else None
 
     return ZoneResult(
-        ticker=instrument.symbol, zone=zone, zone_label=zone_label,
+        instrument_id=instrument.id, ticker=instrument.symbol, zone=zone, zone_label=zone_label,
         rsi=latest["rsi"], price=latest["price"], macro_sma=latest["macro_sma"],
         fast_ema=latest["fast_ema"], slow_ema=latest["slow_ema"],
         atr_band_lower=atr_band_lower, atr_band_upper=atr_band_upper, rvol=rvol, reason=reason,
@@ -197,7 +198,7 @@ def _scan_cached(params: ZoneParams, as_of: date) -> ScanResult:
         atr_band_lower = latest_macro_sma[iid] - 0.5 * atr_val if zone == "A" else None
         atr_band_upper = latest_slow_ema[iid] + params.atr_limit_multiplier * atr_val if zone == "B" else None
         matches.append(ZoneResult(
-            ticker=symbols.get(iid, str(iid)), zone=zone, zone_label=zone_label,
+            instrument_id=iid, ticker=symbols.get(iid, str(iid)), zone=zone, zone_label=zone_label,
             rsi=latest_rsi[iid], price=latest_price[iid], macro_sma=latest_macro_sma[iid],
             fast_ema=latest_fast_ema[iid], slow_ema=latest_slow_ema[iid],
             atr_band_lower=atr_band_lower, atr_band_upper=atr_band_upper, rvol=rvol, reason=reason,

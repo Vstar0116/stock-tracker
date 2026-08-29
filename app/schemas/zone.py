@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 
 class ZoneOut(BaseModel):
+    instrument_id: int
     ticker: str
     zone: Literal["A", "B", "C", "D", "Unclassified", "Insufficient Data"]
     zone_label: str

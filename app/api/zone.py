@@ -56,7 +56,7 @@ def _params_out(params: ZoneParams) -> ZoneParamsOut:
 
 def _zone_out(result: ZoneResult) -> ZoneOut:
     return ZoneOut(
-        ticker=result.ticker, zone=result.zone, zone_label=result.zone_label, rsi=result.rsi,
+        instrument_id=result.instrument_id, ticker=result.ticker, zone=result.zone, zone_label=result.zone_label, rsi=result.rsi,
         price=result.price, macro_sma=result.macro_sma, fast_ema=result.fast_ema, slow_ema=result.slow_ema,
         atr_band_lower=result.atr_band_lower, atr_band_upper=result.atr_band_upper, rvol=result.rvol,
         reason=result.reason,

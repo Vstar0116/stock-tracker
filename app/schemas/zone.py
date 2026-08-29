@@ -20,6 +20,7 @@ class ZoneOut(BaseModel):
 
 
 class SkippedOut(BaseModel):
+    instrument_id: int
     ticker: str
     reason: str
 

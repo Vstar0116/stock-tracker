@@ -178,7 +178,11 @@ def _scan_cached(params: ZoneParams, as_of: date) -> ScanResult:
     ready_mask = required.notna().all(axis=1)
 
     skipped = [
-        {"ticker": symbols.get(iid, str(iid)), "reason": "insufficient history or NaN indicator value"}
+        {
+            "instrument_id": iid,
+            "ticker": symbols.get(iid, str(iid)),
+            "reason": "insufficient history or NaN indicator value",
+        }
         for iid in required.index[~ready_mask]
     ]
 
@@ -211,13 +215,19 @@ def _scan_cached(params: ZoneParams, as_of: date) -> ScanResult:
     return ScanResult(as_of=as_of, matches=matches, skipped=skipped, evaluated=total_active, cached=False, elapsed_ms=elapsed_ms)
 
 
-def run_zone_scan(db: Session, params: ZoneParams) -> ScanResult:
+def run_zone_scan(db: Session, params: ZoneParams, instrument_ids: frozenset[int] | None = None) -> ScanResult:
     """`lru_cache` doesn't expose "was this specific key already cached" via
     cache_info() (only aggregate hit/miss counts across all keys) -- and a
     cache-hit result is the exact same frozen ScanResult object from when it
     was first computed, with cached=False still baked into it. Comparing the
     hit counter before/after this one call is what tells us which case we're
     in, so we can override cached=True on the returned object after the fact.
+
+    `instrument_ids`, when given, scopes the result to one watchlist. The
+    underlying whole-market computation stays on its (params, as_of) cache
+    key regardless -- it's the same scan for every watchlist and every user,
+    so filtering happens after the cached call rather than threading the
+    watchlist into the cache key and recomputing per watchlist.
     """
     as_of = latest_trade_date(db)
     if as_of is None:
@@ -226,4 +236,11 @@ def run_zone_scan(db: Session, params: ZoneParams) -> ScanResult:
     hits_before = _scan_cached.cache_info().hits
     result = _scan_cached(params, as_of)
     was_cache_hit = _scan_cached.cache_info().hits > hits_before
-    return dataclasses.replace(result, cached=was_cache_hit) if was_cache_hit else result
+    result = dataclasses.replace(result, cached=was_cache_hit) if was_cache_hit else result
+
+    if instrument_ids is None:
+        return result
+
+    matches = [m for m in result.matches if m.instrument_id in instrument_ids]
+    skipped = [s for s in result.skipped if s["instrument_id"] in instrument_ids]
+    return dataclasses.replace(result, matches=matches, skipped=skipped, evaluated=len(matches) + len(skipped))

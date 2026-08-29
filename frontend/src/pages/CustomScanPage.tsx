@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import { apiFetch, ApiError } from '../lib/api'
 import { fmtPrice } from '../lib/format'
 import { usePageHeader } from '../lib/pageHeader'
-import type { ScanDirection, ScanResponse, Zone, ZoneScanResponse } from '../lib/types'
+import { useFetch } from '../lib/useFetch'
+import type { Page, ScanDirection, ScanResponse, WatchlistOut, Zone, ZoneScanResponse } from '../lib/types'
 
 const ZONE_COLORS: Record<Zone, string> = {
   A: 'var(--color-pos-text)',
@@ -52,6 +53,10 @@ export function CustomScanPage() {
   const [zoneResult, setZoneResult] = useState<ZoneScanResponse | null>(null)
   const [zoneLoading, setZoneLoading] = useState(false)
   const [zoneError, setZoneError] = useState<string | null>(null)
+  const [zoneWatchlistId, setZoneWatchlistId] = useState('')
+
+  const { data: watchlistPage } = useFetch<Page<WatchlistOut>>(scanType === 'zone' ? '/api/watchlists?limit=200' : null, [scanType])
+  const watchlists = watchlistPage?.items ?? []
 
   const fastNum = Number(fast)
   const slowNum = Number(slow)
@@ -80,8 +85,9 @@ export function CustomScanPage() {
     setZoneLoading(true)
     setZoneError(null)
     try {
-      const qs = new URLSearchParams(zoneParams as unknown as Record<string, string>).toString()
-      const res = await apiFetch<ZoneScanResponse>(`/api/zone/scan?${qs}`)
+      const qs = new URLSearchParams(zoneParams as unknown as Record<string, string>)
+      if (zoneWatchlistId) qs.set('watchlist_id', zoneWatchlistId)
+      const res = await apiFetch<ZoneScanResponse>(`/api/zone/scan?${qs.toString()}`)
       setZoneResult(res)
     } catch (err) {
       setZoneResult(null)
@@ -107,6 +113,7 @@ export function CustomScanPage() {
       {scanType === 'zone' ? (
         <ZoneScanSection
           params={zoneParams} onParamsChange={setZoneParams}
+          watchlists={watchlists} watchlistId={zoneWatchlistId} onWatchlistIdChange={setZoneWatchlistId}
           result={zoneResult} loading={zoneLoading} error={zoneError} onRun={runZoneScan}
         />
       ) : (
@@ -212,10 +219,13 @@ const ZONE_PARAM_GROUPS: { title: string; fields: { key: ZoneParamKey; label: st
 ]
 
 function ZoneScanSection({
-  params, onParamsChange, result, loading, error, onRun,
+  params, onParamsChange, watchlists, watchlistId, onWatchlistIdChange, result, loading, error, onRun,
 }: {
   params: ZoneParamsState
   onParamsChange: (p: ZoneParamsState) => void
+  watchlists: WatchlistOut[]
+  watchlistId: string
+  onWatchlistIdChange: (id: string) => void
   result: ZoneScanResponse | null
   loading: boolean
   error: string | null
@@ -234,6 +244,18 @@ function ZoneScanSection({
           <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
           {loading ? 'Running…' : 'Run scan'}
         </button>
+        <div className="field" style={{ margin: 0 }}>
+          <select
+            className="input" style={{ width: 190 }}
+            value={watchlistId} onChange={(e) => onWatchlistIdChange(e.target.value)}
+            aria-label="Scan scope"
+          >
+            <option value="">Whole market</option>
+            {watchlists.map((w) => (
+              <option key={w.id} value={w.id}>{w.name}</option>
+            ))}
+          </select>
+        </div>
         <span className="text-muted" style={{ fontSize: 12.5 }}>Classifies every stock into Zone A–D by RSI/trend position.</span>
         <button type="button" className="btn btn-ghost" style={{ fontSize: 12.5, padding: 0, marginLeft: 'auto' }} onClick={() => setShowAdvanced((s) => !s)}>
           {showAdvanced ? 'Hide' : 'Show'} advanced parameters

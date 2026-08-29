@@ -255,7 +255,7 @@ export interface ZoneOut {
 export interface ZoneScanResponse {
   as_of: string
   matches: ZoneOut[]
-  skipped: { ticker: string; reason: string }[]
+  skipped: { instrument_id: number; ticker: string; reason: string }[]
   evaluated: number
   cached: boolean
   elapsed_ms: number

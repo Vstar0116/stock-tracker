@@ -4,15 +4,39 @@ features -- see docs/superpowers/specs/2026-08-25-bs-v4-zone-classifier-design.m
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
+from app.models import User, Watchlist, WatchlistItem
 from app.schemas.zone import SkippedOut, ZoneOut, ZoneParamsOut, ZoneScanResponse
 from app.services.zone_classifier import ZoneParams
 from app.services.zone_loader import ZoneResult, get_zone_for_instrument, run_zone_scan
 
 router = APIRouter(prefix="/api/zone", tags=["zone"], dependencies=[Depends(get_current_user)])
+
+
+def _watchlist_instrument_ids(
+    watchlist_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> frozenset[int] | None:
+    """None means "whole market" (the default, unscoped scan). When a
+    watchlist_id is given, ownership is enforced the same way as
+    get_owned_watchlist (app/api/deps.py) -- a watchlist owned by someone
+    else 404s exactly like a missing one, never leaking that it exists."""
+    if watchlist_id is None:
+        return None
+    watchlist = db.execute(
+        select(Watchlist).where(Watchlist.id == watchlist_id, Watchlist.user_id == current_user.id)
+    ).scalar_one_or_none()
+    if watchlist is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "watchlist not found")
+    ids = db.execute(
+        select(WatchlistItem.instrument_id).where(WatchlistItem.watchlist_id == watchlist.id)
+    ).scalars().all()
+    return frozenset(ids)
 
 
 def _params_from_query(
@@ -64,8 +88,12 @@ def _zone_out(result: ZoneResult) -> ZoneOut:
 
 
 @router.get("/scan", response_model=ZoneScanResponse)
-def scan_zones(db: Session = Depends(get_db), params: ZoneParams = Depends(_params_from_query)) -> ZoneScanResponse:
-    result = run_zone_scan(db, params)
+def scan_zones(
+    db: Session = Depends(get_db),
+    params: ZoneParams = Depends(_params_from_query),
+    instrument_ids: frozenset[int] | None = Depends(_watchlist_instrument_ids),
+) -> ZoneScanResponse:
+    result = run_zone_scan(db, params, instrument_ids)
     return ZoneScanResponse(
         as_of=result.as_of.isoformat(),
         params=_params_out(params),

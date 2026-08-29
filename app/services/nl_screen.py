@@ -29,6 +29,7 @@ import openai
 from pydantic import BaseModel, ValidationError
 
 from app.config import settings
+from app.errors import UnprocessableError
 from app.schemas.screen import CATEGORICAL_FIELDS, DAILY_NUMERIC_FIELDS, FUNDAMENTAL_FIELDS, ScreenRule
 
 logger = logging.getLogger("nl_screen")
@@ -37,7 +38,7 @@ GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 TOOL_NAME = "build_screen_rule"
 
 
-class NlScreenError(Exception):
+class NlScreenError(UnprocessableError):
     """Not configured, unreachable, refused, or produced a rule that fails
     our schema -- callers turn this into a 422, never into a screen."""
 

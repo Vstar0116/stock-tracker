@@ -16,6 +16,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.db.session import engine
+from app.errors import NoPriceDataError
 from app.jobs.compute_indicators import load_price_history
 from app.models import Instrument
 from app.services.crossover import STALE_TOLERANCE_DAYS
@@ -220,7 +221,7 @@ def run_zone_scan(db: Session, params: ZoneParams) -> ScanResult:
     """
     as_of = latest_trade_date(db)
     if as_of is None:
-        raise ValueError("no price data loaded yet")
+        raise NoPriceDataError()
 
     hits_before = _scan_cached.cache_info().hits
     result = _scan_cached(params, as_of)

@@ -19,8 +19,9 @@ from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
 from app.models import DailyPrice, Instrument, JobRun
+from app.logging_config import configure_logging
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+configure_logging()
 logger = logging.getLogger("ingest_prices")
 
 IST_OFFSET = timedelta(hours=5, minutes=30)

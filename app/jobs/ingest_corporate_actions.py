@@ -48,8 +48,9 @@ from sqlalchemy.orm import Session
 from app.db.session import SessionLocal
 from app.jobs._tracking import track_job_run
 from app.models import CorporateAction, Instrument
+from app.logging_config import configure_logging
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+configure_logging()
 logger = logging.getLogger("ingest_corporate_actions")
 
 JOB_NAME = "ingest_corporate_actions"

@@ -574,6 +574,32 @@ class TestInstrumentCrossover:
 
 
 class TestCrossoverScan:
+    def test_no_price_data_404s_via_global_domain_error_handler(self, client, owner, monkeypatch):
+        """crossover_loader.run_scan raises NoPriceDataError (app/errors.py)
+        when daily_prices is empty. This route used to catch that itself
+        (`except ValueError as exc: raise HTTPException(404, ...)`); that
+        local try/except is gone now -- app/main.py's global
+        @app.exception_handler(DomainError) does the translation instead.
+        This confirms the behavior is unchanged after removing it."""
+        from app.api import crossover as crossover_module
+        from app.errors import NoPriceDataError
+
+        def boom(*a, **k):
+            raise NoPriceDataError()
+
+        # crossover.py does `from app.services.crossover_loader import
+        # run_scan`, binding the name into ITS OWN module namespace -- must
+        # patch it there, not on crossover_loader itself.
+        monkeypatch.setattr(crossover_module, "run_scan", boom)
+
+        resp = client.post(
+            "/api/scans/crossover",
+            json={"fast": 9, "slow": 21, "ma_type": "ema", "direction": "any"},
+            headers=_auth(owner),
+        )
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "no price data loaded yet"
+
     def test_finds_matches_across_instruments(self, client, db, owner, monkeypatch):
         import contextlib
 
@@ -706,6 +732,27 @@ class TestZoneClassifier:
     def test_get_zone_unknown_instrument_404s(self, client, owner):
         resp = client.get("/api/zone/999999", headers=_auth(owner))
         assert resp.status_code == 404
+
+    def test_scan_with_no_price_data_404s_not_500(self, client, owner, monkeypatch):
+        """Regression test: app/api/zone.py's scan route used to have NO
+        try/except around run_zone_scan() at all -- unlike the analogous
+        crossover scan route, which does catch this -- so on an empty
+        database this raised a bare ValueError straight through to an
+        unhandled 500. zone_loader.run_zone_scan now raises NoPriceDataError
+        (app/errors.py) instead, and app/main.py's global
+        @app.exception_handler(DomainError) catches it for every route that
+        can raise it, without zone.py needing its own try/except at all."""
+        from app.api import zone as zone_module
+        from app.errors import NoPriceDataError
+
+        def boom(*a, **k):
+            raise NoPriceDataError()
+
+        monkeypatch.setattr(zone_module, "run_zone_scan", boom)
+
+        resp = client.get("/api/zone/scan", headers=_auth(owner))
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "no price data loaded yet"
 
     def test_get_zone_invalid_params_422s(self, client, owner, instrument):
         resp = client.get(

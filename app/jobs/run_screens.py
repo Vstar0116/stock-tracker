@@ -20,8 +20,9 @@ from app.jobs._tracking import track_job_run
 from app.models import Alert, Screen
 from app.schemas.screen import parse_screen_definition
 from app.services.screening import NON_SNAPSHOT_COLUMNS, compile_screen, latest_trade_date, previous_trade_date
+from app.logging_config import configure_logging
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+configure_logging()
 logger = logging.getLogger("run_screens")
 
 JOB_NAME = "run_screens"

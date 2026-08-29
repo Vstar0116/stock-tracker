@@ -44,8 +44,9 @@ from app.jobs.compute_indicators import load_price_history, upsert_indicators
 from app.models import CorporateAction, DailyPrice
 from app.services.indicators import compute_all_indicators
 from app.services.price_adjustment import ADJUSTABLE_ACTION_TYPES, adjustment_factor
+from app.logging_config import configure_logging
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+configure_logging()
 logger = logging.getLogger("repair_price_adjustments")
 
 

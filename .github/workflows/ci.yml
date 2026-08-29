@@ -46,10 +46,21 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: |
+          # setuptools ships with the venv itself (this project's own build
+          # backend is hatchling, not setuptools -- see [build-system]
+          # below), so it's not pinned anywhere and can drift to whatever
+          # version actions/setup-python's bundled venv happens to carry.
+          # Bump it explicitly before auditing, the same free-and-easy
+          # reasoning the Dockerfile already applies to pip itself.
+          pip install --upgrade pip setuptools
+          pip install -e ".[dev]"
 
       - name: Lint (ruff)
         run: ruff check .
+
+      - name: Dependency audit (pip-audit)
+        run: pip-audit
 
       - name: Run migrations
         run: alembic upgrade head
@@ -79,6 +90,9 @@ jobs:
 
       - name: Lint (oxlint)
         run: npm run lint
+
+      - name: Dependency audit (npm audit)
+        run: npm audit --audit-level=high
 
       - name: Build (tsc -b + vite build -- fails on TypeScript errors)
         run: npm run build

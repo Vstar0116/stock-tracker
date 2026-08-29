@@ -25,7 +25,7 @@ from app.schemas.screen import (
     ScreenUpdate,
     parse_screen_definition,
 )
-from app.services.nl_screen import NlScreenError, translate_to_rule
+from app.services.nl_screen import translate_to_rule
 from app.services.screening import NON_SNAPSHOT_COLUMNS, compile_screen, latest_trade_date, previous_trade_date
 
 router = APIRouter(prefix="/api/screens", tags=["screens"])
@@ -155,10 +155,7 @@ def screen_from_text(
     current_user: User = Depends(get_current_user),
 ) -> ScreenFromTextResponse:
     nl_screen_daily_limiter.check(str(current_user.id))
-    try:
-        rule = translate_to_rule(payload.text)
-    except NlScreenError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    rule = translate_to_rule(payload.text)  # raises NlScreenError (UnprocessableError) -- handled globally
     return ScreenFromTextResponse(definition=rule)
 
 

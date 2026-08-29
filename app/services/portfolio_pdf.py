@@ -24,6 +24,8 @@ from io import BytesIO
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
+from app.errors import UnprocessableError
+
 _TICKER = r"[A-Z][A-Z0-9&.\-]{1,19}"
 _GROUP = r"Core|Growth|Defens\.?|Dark\s+H\.?"
 
@@ -62,7 +64,7 @@ class ParsedReport:
     rows: list[PdfRow]
 
 
-class PortfolioPdfError(Exception):
+class PortfolioPdfError(UnprocessableError):
     """Not a readable PDF, or contained no recognisable ticker rows."""
 
 

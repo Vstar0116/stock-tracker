@@ -17,7 +17,7 @@ from app.rate_limit import RateLimiter
 from app.schemas.common import Page
 from app.schemas.portfolio_report import PortfolioReportItemOut, PortfolioReportOut, PortfolioReportSummary
 from app.schemas.watchlist import WatchlistOut
-from app.services.portfolio_pdf import PortfolioPdfError, parse_portfolio_pdf
+from app.services.portfolio_pdf import parse_portfolio_pdf
 from app.services.portfolio_reports import matched_instrument_ids, save_report
 
 router = APIRouter(prefix="/api/portfolio-reports", tags=["portfolio-reports"])
@@ -68,11 +68,19 @@ def _load_report_out(db: Session, report: PortfolioReport) -> PortfolioReportOut
 
 
 @router.post("", response_model=PortfolioReportOut, status_code=status.HTTP_201_CREATED)
-async def upload_report(
+def upload_report(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> PortfolioReportOut:
+    # Deliberately sync, not `async def`: this route does synchronous Postgres
+    # calls (the rate limiter below, save_report) and sync CPU-bound PDF
+    # parsing. A sync `def` route gets run in FastAPI's threadpool
+    # automatically -- an `async def` version of this same body would run
+    # directly on the event loop instead, and a slow upload could stall that
+    # worker's event loop for every other concurrent request. `file.file` is
+    # the raw stdlib BinaryIO underneath UploadFile's async wrapper, so it's
+    # sync-readable without needing `await file.read(...)`.
     portfolio_upload_limiter.check(str(current_user.id))
 
     filename = file.filename or "report.pdf"
@@ -81,15 +89,11 @@ async def upload_report(
 
     # Read one byte past the cap so a file exactly at the limit isn't
     # mistaken for one that got truncated by the cap itself.
-    data = await file.read(MAX_UPLOAD_BYTES + 1)
+    data = file.file.read(MAX_UPLOAD_BYTES + 1)
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "file too large (max 5 MB)")
 
-    try:
-        parsed = parse_portfolio_pdf(data)
-    except PortfolioPdfError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
-
+    parsed = parse_portfolio_pdf(data)  # raises UnprocessableError -- handled globally, see app/errors.py
     report = save_report(db, current_user, filename[:255], parsed)
     return _load_report_out(db, report)
 

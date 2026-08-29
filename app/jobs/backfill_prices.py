@@ -19,8 +19,9 @@ from sqlalchemy.orm import Session
 from app.db.session import SessionLocal
 from app.jobs.ingest_prices import fetch_bse_bhavcopy, fetch_nse_bhavcopy, run_for_exchange
 from app.models import JobRun
+from app.logging_config import configure_logging
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+configure_logging()
 logger = logging.getLogger("backfill_prices")
 
 EXCHANGES = (

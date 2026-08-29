@@ -33,8 +33,9 @@ from app.jobs.ingest_prices import IST_OFFSET, most_recent_trading_day
 from app.models import CorporateAction, DailyPrice, JobRun, Screen
 from app.services import alerting
 from app.services.price_adjustment import apply_corporate_action
+from app.logging_config import configure_logging
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+configure_logging()
 logger = logging.getLogger("daily_pipeline")
 
 PIPELINE_JOB_NAME = "daily_pipeline"

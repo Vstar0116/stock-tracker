@@ -21,6 +21,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db.session import engine
+from app.errors import NoPriceDataError
 from app.services.crossover import STALE_TOLERANCE_DAYS, MaType, scan_last_bar, warmup_bars
 from app.services.screening import latest_trade_date
 
@@ -51,7 +52,7 @@ def resolve_window(n_bars: int) -> tuple[date, date]:
             {"n": n_bars},
         ).fetchall()
     if not rows:
-        raise ValueError("no price data loaded yet")
+        raise NoPriceDataError()
     return rows[0][0], rows[-1][0]
 
 
@@ -163,7 +164,7 @@ def run_scan(
     is O(matches), not O(universe)."""
     as_of = latest_trade_date(db)
     if as_of is None:
-        raise ValueError("no price data loaded yet")
+        raise NoPriceDataError()
 
     t0 = time.perf_counter()
     hits_before = _scan_cached.cache_info().hits

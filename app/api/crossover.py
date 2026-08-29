@@ -113,10 +113,7 @@ def scan_crossover(
     payload: ScanRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ) -> ScanResponse:
     restriction = _restriction_set(db, current_user, payload)
-    try:
-        result = run_scan(db, payload.fast, payload.slow, payload.ma_type, payload.direction, restriction)
-    except ValueError as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    result = run_scan(db, payload.fast, payload.slow, payload.ma_type, payload.direction, restriction)
 
     instrument_ids = list(result.matches.index)
     rows = {}

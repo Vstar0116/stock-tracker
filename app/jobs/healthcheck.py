@@ -23,8 +23,9 @@ from app.db.session import SessionLocal
 from app.jobs.daily_pipeline import PIPELINE_JOB_NAME
 from app.models import JobRun
 from app.services import alerting
+from app.logging_config import configure_logging
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+configure_logging()
 logger = logging.getLogger("healthcheck")
 
 # The pipeline runs once a day (weekdays); 36h covers a normal ~24h gap plus

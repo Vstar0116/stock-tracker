@@ -3,6 +3,7 @@ from app.models.fundamentals import Fundamental
 from app.models.instrument import Instrument
 from app.models.jobs import JobRun
 from app.models.login_attempt import LoginAttempt
+from app.models.portfolio_reports import PortfolioReport, PortfolioReportItem
 from app.models.prices import CorporateAction, DailyPrice, Indicator
 from app.models.screens import Alert, Screen
 from app.models.users import User, Watchlist, WatchlistItem
@@ -21,4 +22,6 @@ __all__ = [
     "Alert",
     "JobRun",
     "LoginAttempt",
+    "PortfolioReport",
+    "PortfolioReportItem",
 ]

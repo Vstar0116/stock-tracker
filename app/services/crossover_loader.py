@@ -136,12 +136,31 @@ class ScanResult:
     skipped_stale: int
     elapsed_ms: int
     cached: bool
+    universe: int | None = None
 
 
-def run_scan(db: Session, fast: int, slow: int, ma_type: MaType, direction: Direction) -> ScanResult:
+def run_scan(
+    db: Session,
+    fast: int,
+    slow: int,
+    ma_type: MaType,
+    direction: Direction,
+    instrument_ids: frozenset[int] | None = None,
+) -> ScanResult:
     """The function the API route calls directly. `db` is only used for the
     cheap, uncached as_of freshness check -- the expensive, cached work below
-    opens its own connection (see _connect)."""
+    opens its own connection (see _connect).
+
+    `instrument_ids`, when given, restricts the result to that subset (a
+    portfolio report's matched tickers, optionally intersected with the
+    caller's watchlists -- app/api/crossover.py builds the set). This filters
+    _scan_cached's already-computed `matches` Series *after* the cache
+    lookup rather than folding the subset into the cache key: that key is
+    (fast, slow, ma_type, as_of), shared by every caller for the same
+    parameters, and every distinct per-user instrument subset becoming its
+    own multi-second cache miss would blow past `_scan_cached`'s
+    maxsize=64 budget for no benefit -- filtering a already-computed Series
+    is O(matches), not O(universe)."""
     as_of = latest_trade_date(db)
     if as_of is None:
         raise ValueError("no price data loaded yet")
@@ -153,6 +172,8 @@ def run_scan(db: Session, fast: int, slow: int, ma_type: MaType, direction: Dire
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
     matches = raw.signals if direction == "any" else raw.signals[raw.signals == direction]
+    if instrument_ids is not None:
+        matches = matches[matches.index.isin(instrument_ids)]
 
     return ScanResult(
         as_of=as_of,
@@ -162,4 +183,5 @@ def run_scan(db: Session, fast: int, slow: int, ma_type: MaType, direction: Dire
         skipped_stale=raw.skipped_stale,
         elapsed_ms=elapsed_ms,
         cached=cached,
+        universe=len(instrument_ids) if instrument_ids is not None else None,
     )

@@ -32,7 +32,13 @@ export class ApiError extends Error {
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set('Accept', 'application/json')
-  if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+  // A FormData body (multipart upload) must NOT get this default -- fetch
+  // sets its own Content-Type with the multipart boundary from the body
+  // itself, and a hardcoded 'application/json' here would overwrite that
+  // and break the upload server-side.
+  if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
   if (token) headers.set('Authorization', `Bearer ${token}`)
 
   const res = await fetch(`${API_BASE_URL}${path}`, { ...init, headers })

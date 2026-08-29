@@ -8,6 +8,7 @@ throwaway instrument so nothing here depends on (or mutates) real market data.
 
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -769,3 +770,234 @@ class TestZoneClassifier:
     def test_requires_auth(self, client):
         resp = client.get("/api/zone/scan")
         assert resp.status_code == 401
+
+
+class TestPortfolioReports:
+    """POST /api/portfolio-reports (+ list/get/delete/watchlist) and the
+    ScanRequest.report_id / watchlist_only restriction on
+    POST /api/scans/crossover. Uses the same checked-in real-world fixture
+    as tests/test_portfolio_pdf.py (a 54-ticker BANYAN-STRATUM-V4 report)
+    rather than a synthetic PDF, via TestClient's multipart `files=`.
+    """
+
+    FIXTURE = Path(__file__).parent / "fixtures" / "portfolio_report.pdf"
+
+    def _upload(self, client, owner, filename="portfolio_report.pdf", content=None, content_type="application/pdf"):
+        return client.post(
+            "/api/portfolio-reports",
+            files={"file": (filename, content or self.FIXTURE.read_bytes(), content_type)},
+            headers=_auth(owner),
+        )
+
+    def test_upload_parses_and_persists_the_report(self, client, owner):
+        resp = self._upload(client, owner)
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["filename"] == "portfolio_report.pdf"
+        assert body["report_date"] == "2026-08-22"
+        assert body["ticker_count"] == 54
+        # No matching instruments seeded in this test -- every row is
+        # present but unmatched.
+        assert body["matched_count"] == 0
+        assert len(body["items"]) == 54
+        trent = next(i for i in body["items"] if i["ticker"] == "TRENT")
+        assert trent["matched"] is False
+        assert trent["instrument_id"] is None
+        assert trent["grp"] == "Core"
+        assert trent["score"] == 4
+        assert trent["zone"] == "A"
+
+    def test_upload_matches_against_existing_instruments(self, client, db, owner):
+        from app.models import Instrument
+
+        inst = Instrument(symbol="TRENT", exchange="NSE", company_name="Trent Ltd", is_active=True)
+        db.add(inst)
+        db.flush()
+
+        resp = self._upload(client, owner)
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["matched_count"] == 1
+        trent = next(i for i in body["items"] if i["ticker"] == "TRENT")
+        assert trent["matched"] is True
+        assert trent["instrument_id"] == inst.id
+        assert trent["symbol"] == "TRENT"
+
+    def test_rejects_non_pdf_content(self, client, owner):
+        resp = self._upload(client, owner, filename="notes.txt", content=b"hello world", content_type="text/plain")
+        assert resp.status_code == 415
+
+    def test_rejects_unreadable_pdf_bytes(self, client, owner):
+        resp = self._upload(client, owner, filename="fake.pdf", content=b"%PDF-1.4 not really a pdf")
+        assert resp.status_code == 422
+
+    def test_rejects_oversized_upload(self, client, owner, monkeypatch):
+        from app.api import portfolio_reports
+
+        monkeypatch.setattr(portfolio_reports, "MAX_UPLOAD_BYTES", 100)
+        resp = self._upload(client, owner)  # real fixture is far bigger than 100 bytes
+        assert resp.status_code == 413
+
+    def test_requires_auth(self, client):
+        resp = client.post("/api/portfolio-reports", files={"file": ("x.pdf", self.FIXTURE.read_bytes(), "application/pdf")})
+        assert resp.status_code == 401
+
+    def test_list_scoped_to_current_user(self, client, owner, other_user):
+        assert self._upload(client, owner).status_code == 201
+        resp = client.get("/api/portfolio-reports", headers=_auth(other_user))
+        assert resp.status_code == 200
+        assert resp.json()["items"] == []
+        resp = client.get("/api/portfolio-reports", headers=_auth(owner))
+        assert resp.status_code == 200
+        assert len(resp.json()["items"]) == 1
+
+    def test_ownership_enforced_on_get_and_delete(self, client, owner, other_user):
+        report_id = self._upload(client, owner).json()["id"]
+
+        resp = client.get(f"/api/portfolio-reports/{report_id}", headers=_auth(other_user))
+        assert resp.status_code == 404
+
+        resp = client.delete(f"/api/portfolio-reports/{report_id}", headers=_auth(other_user))
+        assert resp.status_code == 404
+
+        resp = client.get(f"/api/portfolio-reports/{report_id}", headers=_auth(owner))
+        assert resp.status_code == 200
+
+        resp = client.delete(f"/api/portfolio-reports/{report_id}", headers=_auth(owner))
+        assert resp.status_code == 204
+
+    def test_save_as_watchlist_creates_a_watchlist_of_matched_instruments(self, client, db, owner):
+        from app.models import Instrument
+
+        trent = Instrument(symbol="TRENT", exchange="NSE", company_name="Trent Ltd", is_active=True)
+        db.add(trent)
+        db.flush()
+
+        report_id = self._upload(client, owner).json()["id"]
+
+        resp = client.post(f"/api/portfolio-reports/{report_id}/watchlist", headers=_auth(owner))
+        assert resp.status_code == 201
+        watchlist_id = resp.json()["id"]
+
+        view = client.get(f"/api/watchlists/{watchlist_id}/view", headers=_auth(owner))
+        assert view.status_code == 200
+        symbols = {row["symbol"] for row in view.json()["items"]}
+        assert symbols == {"TRENT"}
+
+    def test_save_as_watchlist_with_no_matches_is_rejected(self, client, owner):
+        report_id = self._upload(client, owner).json()["id"]  # no instruments seeded -- nothing matches
+        resp = client.post(f"/api/portfolio-reports/{report_id}/watchlist", headers=_auth(owner))
+        assert resp.status_code == 422
+
+    def test_scan_report_id_restricts_matches_and_carries_pdf_fields(self, client, db, owner, monkeypatch):
+        import contextlib
+
+        from sqlalchemy import text
+
+        from app.models import DailyPrice, Instrument
+        from app.services import crossover_loader
+
+        monkeypatch.setattr(crossover_loader, "_connect", lambda: contextlib.nullcontext(db.connection()))
+        crossover_loader._scan_cached.cache_clear()
+        crossover_loader._load_wide_cached.cache_clear()
+
+        dates = sorted(
+            r[0]
+            for r in db.execute(
+                text("SELECT DISTINCT trade_date FROM daily_prices ORDER BY trade_date DESC LIMIT :n"), {"n": 9}
+            ).fetchall()
+        )
+
+        # TRENT is in the PDF; OTHR2 is not -- both cross the same way, so
+        # only the report_id filter (not the crossover logic) explains OTHR2
+        # being excluded below.
+        trent = Instrument(symbol="TRENT", exchange="NSE", company_name="Trent Ltd", sector="Retail", is_active=True)
+        other = Instrument(symbol="OTHR2", exchange="NSE", company_name="Other Co", is_active=True)
+        db.add_all([trent, other])
+        db.flush()
+        for inst in (trent, other):
+            for d, close in zip(dates, [10, 10, 10, 10, 10, 10, 10, 10, 30]):
+                db.add(
+                    DailyPrice(
+                        instrument_id=inst.id, trade_date=d, open=close, high=close, low=close,
+                        close=close, adjusted_close=close, volume=100,
+                    )
+                )
+        db.flush()
+
+        report_id = self._upload(client, owner).json()["id"]
+
+        resp = client.post(
+            "/api/scans/crossover",
+            json={"fast": 2, "slow": 3, "ma_type": "sma", "direction": "any", "report_id": report_id},
+            headers=_auth(owner),
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        symbols = {m["symbol"] for m in body["matches"]}
+        assert symbols == {"TRENT"}
+        assert body["stats"]["universe"] == 1
+
+        trent_match = next(m for m in body["matches"] if m["symbol"] == "TRENT")
+        assert trent_match["pdf_group"] == "Core"
+        assert trent_match["pdf_score"] == 4
+        assert trent_match["pdf_zone"] == "A"
+        assert trent_match["pdf_price"] == 2924.00
+
+    def test_scan_report_id_for_someone_elses_report_404s(self, client, owner, other_user):
+        report_id = self._upload(client, owner).json()["id"]
+        resp = client.post(
+            "/api/scans/crossover",
+            json={"fast": 2, "slow": 3, "ma_type": "sma", "direction": "any", "report_id": report_id},
+            headers=_auth(other_user),
+        )
+        assert resp.status_code == 404
+
+    def test_scan_watchlist_only_restricts_to_watchlisted_instruments(self, client, db, owner, monkeypatch):
+        import contextlib
+
+        from sqlalchemy import text
+
+        from app.models import DailyPrice, Instrument, Watchlist, WatchlistItem
+        from app.services import crossover_loader
+
+        monkeypatch.setattr(crossover_loader, "_connect", lambda: contextlib.nullcontext(db.connection()))
+        crossover_loader._scan_cached.cache_clear()
+        crossover_loader._load_wide_cached.cache_clear()
+
+        dates = sorted(
+            r[0]
+            for r in db.execute(
+                text("SELECT DISTINCT trade_date FROM daily_prices ORDER BY trade_date DESC LIMIT :n"), {"n": 9}
+            ).fetchall()
+        )
+
+        listed = Instrument(symbol="WLST2", exchange="NSE", company_name="Listed Co", is_active=True)
+        unlisted = Instrument(symbol="NOLST2", exchange="NSE", company_name="Unlisted Co", is_active=True)
+        db.add_all([listed, unlisted])
+        db.flush()
+        for inst in (listed, unlisted):
+            for d, close in zip(dates, [10, 10, 10, 10, 10, 10, 10, 10, 30]):
+                db.add(
+                    DailyPrice(
+                        instrument_id=inst.id, trade_date=d, open=close, high=close, low=close,
+                        close=close, adjusted_close=close, volume=100,
+                    )
+                )
+        db.flush()
+
+        watchlist = Watchlist(user_id=owner.id, name="my list")
+        db.add(watchlist)
+        db.flush()
+        db.add(WatchlistItem(watchlist_id=watchlist.id, instrument_id=listed.id))
+        db.flush()
+
+        resp = client.post(
+            "/api/scans/crossover",
+            json={"fast": 2, "slow": 3, "ma_type": "sma", "direction": "any", "watchlist_only": True},
+            headers=_auth(owner),
+        )
+        assert resp.status_code == 200
+        symbols = {m["symbol"] for m in resp.json()["matches"]}
+        assert "WLST2" in symbols
+        assert "NOLST2" not in symbols

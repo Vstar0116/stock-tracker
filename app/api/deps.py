@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.models import Screen, User, Watchlist
+from app.models import PortfolioReport, Screen, User, Watchlist
 from app.security import decode_access_token
 
 # auto_error=False so a missing header falls through to our own 401 below,
@@ -72,3 +72,19 @@ def get_owned_screen(
     if screen is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "screen not found")
     return screen
+
+
+def get_owned_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PortfolioReport:
+    """Same ownership-in-the-WHERE-clause pattern as get_owned_watchlist/
+    get_owned_screen above -- another user's report 404s rather than 403ing,
+    so its existence isn't leaked."""
+    report = db.execute(
+        select(PortfolioReport).where(PortfolioReport.id == report_id, PortfolioReport.user_id == current_user.id)
+    ).scalar_one_or_none()
+    if report is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "report not found")
+    return report

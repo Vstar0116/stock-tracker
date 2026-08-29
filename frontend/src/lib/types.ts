@@ -213,6 +213,7 @@ export interface ScanStats {
   skipped_stale: number
   elapsed_ms: number
   cached: boolean
+  universe: number | null
 }
 
 export interface ScanMatchOut {
@@ -222,11 +223,56 @@ export interface ScanMatchOut {
   sector: string | null
   latest_close: number | null
   signal: CrossoverSignal
+  pdf_group: string | null
+  pdf_score: number | null
+  pdf_price: number | null
+  pdf_zone: PortfolioZone | null
 }
 
 export interface ScanResponse {
   as_of: string
-  params: { fast: number; slow: number; ma_type: MaType; direction: ScanDirection }
+  params: {
+    fast: number
+    slow: number
+    ma_type: MaType
+    direction: ScanDirection
+    report_id: number | null
+    watchlist_only: boolean
+  }
   stats: ScanStats
   matches: ScanMatchOut[]
+}
+
+// Mirrors app/schemas/portfolio_report.py
+
+export type PortfolioZone = 'A' | 'B' | 'C' | 'D'
+
+export interface PortfolioReportItemOut {
+  ticker: string
+  instrument_id: number | null
+  matched: boolean
+  symbol: string | null
+  grp: string | null
+  score: number | null
+  pdf_price: number | null
+  zone: PortfolioZone | null
+}
+
+export interface PortfolioReportOut {
+  id: number
+  filename: string
+  report_date: string | null
+  uploaded_at: string
+  ticker_count: number
+  matched_count: number
+  items: PortfolioReportItemOut[]
+}
+
+export interface PortfolioReportSummary {
+  id: number
+  filename: string
+  report_date: string | null
+  uploaded_at: string
+  ticker_count: number
+  matched_count: number
 }

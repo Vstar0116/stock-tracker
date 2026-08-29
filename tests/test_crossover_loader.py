@@ -249,3 +249,53 @@ class TestRunScan:
         assert large.skipped_stale == before_large.skipped_stale
         assert large.skipped_insufficient_history == before_large.skipped_insufficient_history
         assert gap_id not in large.matches.index
+
+
+class TestRunScanInstrumentIdsFilter:
+    """app/api/crossover.py restricts a scan to a portfolio report's (and/or
+    a watchlist's) instrument ids via run_scan's `instrument_ids` param --
+    see that param's docstring for why this filters _scan_cached's result
+    after the cache lookup rather than folding the subset into the cache key."""
+
+    def test_restricts_matches_to_given_ids(self, db, monkeypatch):
+        monkeypatch.setattr(crossover_loader, "_connect", lambda: contextlib.nullcontext(db.connection()))
+        _clear_caches()
+
+        dates = _recent_trade_dates(db, 9)
+        crossing_id = _seed_instrument(db, "XYZR1", [10, 10, 10, 10, 10, 10, 10, 10, 30], dates)
+        other_crossing_id = _seed_instrument(db, "XYZR2", [10, 10, 10, 10, 10, 10, 10, 10, 30], dates)
+
+        result = crossover_loader.run_scan(
+            db, fast=2, slow=3, ma_type="sma", direction="any", instrument_ids=frozenset({crossing_id})
+        )
+
+        assert crossing_id in result.matches.index
+        assert other_crossing_id not in result.matches.index
+        assert result.universe == 1
+
+    def test_filter_does_not_bypass_or_pollute_the_shared_cache(self, db, monkeypatch):
+        monkeypatch.setattr(crossover_loader, "_connect", lambda: contextlib.nullcontext(db.connection()))
+        _clear_caches()
+
+        dates = _recent_trade_dates(db, 9)
+        crossing_id = _seed_instrument(db, "XYZR3", [10, 10, 10, 10, 10, 10, 10, 10, 30], dates)
+
+        unrestricted = crossover_loader.run_scan(db, fast=2, slow=3, ma_type="sma", direction="any")
+        assert unrestricted.cached is False
+
+        restricted = crossover_loader.run_scan(
+            db, fast=2, slow=3, ma_type="sma", direction="any", instrument_ids=frozenset({crossing_id})
+        )
+        # Same (fast, slow, ma_type, as_of) key as the call above -- the
+        # instrument filter must not have forced a fresh, unshared cache
+        # entry (the whole point of filtering matches post-hoc rather than
+        # threading the subset into _scan_cached's key).
+        assert restricted.cached is True
+        assert restricted.matches[crossing_id] == "crossed_above"
+
+    def test_no_instrument_ids_is_unrestricted(self, db, monkeypatch):
+        monkeypatch.setattr(crossover_loader, "_connect", lambda: contextlib.nullcontext(db.connection()))
+        _clear_caches()
+
+        result = crossover_loader.run_scan(db, fast=2, slow=3, ma_type="sma", direction="any")
+        assert result.universe is None

@@ -18,6 +18,8 @@ dependencies = [
     "pyjwt",
     "openai",
     "boto3",
+    "pypdf",
+    "python-multipart",
 ]
 
 [project.optional-dependencies]

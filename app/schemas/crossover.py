@@ -36,6 +36,12 @@ class ScanRequest(BaseModel):
     slow: int = Field(ge=1)
     ma_type: MaType
     direction: Direction = "any"
+    # Restrict the scan to one uploaded portfolio-report's matched tickers
+    # (app/api/portfolio_reports.py), optionally intersected with the
+    # current user's saved watchlists. Both None/False -> unchanged,
+    # whole-market behavior.
+    report_id: int | None = None
+    watchlist_only: bool = False
 
     @model_validator(mode="after")
     def _valid_periods(self) -> "ScanRequest":
@@ -50,6 +56,11 @@ class ScanStats(BaseModel):
     skipped_stale: int
     elapsed_ms: int
     cached: bool
+    # Size of the report/watchlist-restricted universe this scan actually
+    # ran against, when report_id or watchlist_only narrowed it -- None
+    # under the default whole-market scan, where `evaluated` already means
+    # exactly that.
+    universe: int | None = None
 
 
 class ScanMatchOut(BaseModel):
@@ -59,6 +70,13 @@ class ScanMatchOut(BaseModel):
     sector: str | None
     latest_close: float | None
     signal: Signal
+    # Present only when the scan was scoped to a report (report_id set) --
+    # that report's own recorded values for this ticker, hydrated from
+    # portfolio_report_items alongside the instrument row below.
+    pdf_group: str | None = None
+    pdf_score: int | None = None
+    pdf_price: float | None = None
+    pdf_zone: str | None = None
 
 
 class ScanResponse(BaseModel):

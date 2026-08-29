@@ -1,11 +1,43 @@
 import { useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { TradingViewChart } from '../components/TradingViewChart'
+import { TradingViewChart, TV_STUDY_OPTIONS } from '../components/TradingViewChart'
 import { apiFetch, ApiError } from '../lib/api'
 import { changeVisual, ChangeGlyph, fmtNum, fmtPct, fmtPrice, indianNum } from '../lib/format'
 import { usePageHeader } from '../lib/pageHeader'
 import { useFetch } from '../lib/useFetch'
 import type { CrossoverSeriesOut, InstrumentDetail, Page, PriceOut } from '../lib/types'
+
+// Per-browser chart preference, not user data -- localStorage is fine here
+// (unlike the auth token, this holds nothing sensitive). Wrapped because
+// localStorage can throw (private browsing, disabled storage).
+function readStudyPref(key: string): string {
+  try {
+    return localStorage.getItem(key) ?? ''
+  } catch {
+    return ''
+  }
+}
+function writeStudyPref(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // best-effort only
+  }
+}
+
+function StudyPicker({ label, value, onChange, otherValue }: { label: string; value: string; onChange: (v: string) => void; otherValue: string }) {
+  return (
+    <div className="field" style={{ margin: 0 }}>
+      <label style={{ fontSize: 11.5 }}>{label}</label>
+      <select className="input" style={{ width: 200, fontSize: 13 }} value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">None</option>
+        {TV_STUDY_OPTIONS.filter((s) => s.id !== otherValue).map((s) => (
+          <option key={s.id} value={s.id}>{s.label}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
 
 interface IndicatorRow {
   label: string
@@ -109,6 +141,17 @@ export function StockDetailPage() {
   const { data: instrument, loading, error } = useFetch<InstrumentDetail>(`/api/instruments/${instrumentId}`, [instrumentId])
   usePageHeader(instrument?.symbol ?? '…', instrument?.company_name ?? null)
 
+  const [study1, setStudy1] = useState(() => readStudyPref('chart-study-1'))
+  const [study2, setStudy2] = useState(() => readStudyPref('chart-study-2'))
+  function updateStudy1(v: string) {
+    setStudy1(v)
+    writeStudyPref('chart-study-1', v)
+  }
+  function updateStudy2(v: string) {
+    setStudy2(v)
+    writeStudyPref('chart-study-2', v)
+  }
+
   // The prices endpoint always orders ascending with no "latest first" option,
   // and there can be years of history -- so ask for just the last ~2 months
   // by date (comfortably more than 30 trading days) instead of paginating
@@ -162,7 +205,11 @@ export function StockDetailPage() {
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20, alignItems: 'start' }}>
         <div className="card blueprint" style={{ padding: 16 }}>
           <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
-          <TradingViewChart symbol={instrument.tv_symbol} />
+          <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+            <StudyPicker label="Indicator 1" value={study1} onChange={updateStudy1} otherValue={study2} />
+            <StudyPicker label="Indicator 2" value={study2} onChange={updateStudy2} otherValue={study1} />
+          </div>
+          <TradingViewChart symbol={instrument.tv_symbol} studies={[study1, study2].filter(Boolean)} />
 
           <div className="demo-head" style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--color-neutral-600)', margin: '20px 0 8px' }}>
             Recent price history

@@ -5,7 +5,11 @@ export function indianNum(num: number | null | undefined, decimals = 2): string 
   const sign = num < 0 ? '-' : ''
   num = Math.abs(num)
   const fixed = num.toFixed(decimals)
-  const [intPart, decPart] = fixed.split('.')
+  // toFixed's own output always has a non-empty part before any '.', so
+  // this fallback never actually fires -- it's here only to satisfy
+  // noUncheckedIndexedAccess's (correct, in general) "an array index could
+  // be out of bounds" typing.
+  const [intPart = '0', decPart] = fixed.split('.')
   const last3 = intPart.slice(-3)
   let rest = intPart.slice(0, -3)
   if (rest !== '') rest = rest.replace(/\B(?=(\d{2})+(?!\d)$)/g, ',') + ','

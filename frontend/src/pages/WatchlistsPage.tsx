@@ -1,10 +1,12 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiFetch } from '../lib/api'
+import { BlueprintButton, DataTable, EmptyState, ErrorText, type DataTableColumn } from '../components/ui'
+import { apiFetch, ApiError } from '../lib/api'
 import { changeVisual, ChangeGlyph, fmtPct, fmtPrice, trendVisual } from '../lib/format'
 import { usePageHeader } from '../lib/pageHeader'
+import { queryKeys } from '../lib/queryKeys'
 import { useToast } from '../lib/toast'
-import { useFetch } from '../lib/useFetch'
 import type { InstrumentOut, Page, WatchlistOut, WatchlistViewRow } from '../lib/types'
 
 function AddInstrument({ watchlistId, onAdded }: { watchlistId: number; onAdded: () => void }) {
@@ -76,49 +78,144 @@ function AddInstrument({ watchlistId, onAdded }: { watchlistId: number; onAdded:
 export function WatchlistsPage() {
   const navigate = useNavigate()
   const toast = useToast()
-  const { data: list, error: listError, reload: reloadList } = useFetch<Page<WatchlistOut>>('/api/watchlists?limit=200')
+  const queryClient = useQueryClient()
+
+  const { data: list, error: listError } = useQuery({
+    queryKey: queryKeys.watchlists.list(),
+    queryFn: () => apiFetch<Page<WatchlistOut>>('/api/watchlists?limit=200'),
+  })
   const [activeId, setActiveId] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
 
   const watchlists = list?.items ?? []
   useEffect(() => {
-    if (activeId === null && watchlists.length > 0) setActiveId(watchlists[0].id)
+    if (activeId === null && watchlists.length > 0) setActiveId(watchlists[0]?.id ?? null)
     if (activeId !== null && !watchlists.some((w) => w.id === activeId)) setActiveId(watchlists[0]?.id ?? null)
   }, [watchlists, activeId])
 
   const active = watchlists.find((w) => w.id === activeId) ?? null
   usePageHeader(active ? active.name : 'Watchlists')
 
-  const { data: view, error: viewError, reload: reloadView } = useFetch<Page<WatchlistViewRow>>(
-    activeId !== null ? `/api/watchlists/${activeId}/view?limit=200` : null,
-    [activeId],
-  )
+  const { data: view, error: viewError } = useQuery({
+    queryKey: queryKeys.watchlists.view(activeId ?? -1),
+    queryFn: () => apiFetch<Page<WatchlistViewRow>>(`/api/watchlists/${activeId}/view?limit=200`),
+    enabled: activeId !== null,
+  })
 
-  async function createWatchlist(e: FormEvent) {
+  const invalidateLists = () => queryClient.invalidateQueries({ queryKey: queryKeys.watchlists.all })
+
+  const createMutation = useMutation({
+    mutationFn: (createdName: string) => apiFetch<WatchlistOut>('/api/watchlists', { method: 'POST', body: JSON.stringify({ name: createdName }) }),
+    onSuccess: (created) => {
+      setNewName('')
+      setCreating(false)
+      invalidateLists()
+      setActiveId(created.id)
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (watchlistId: number) => apiFetch(`/api/watchlists/${watchlistId}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      setActiveId(null)
+      invalidateLists()
+    },
+  })
+
+  const removeItemMutation = useMutation({
+    mutationFn: ({ watchlistId, instrumentId }: { watchlistId: number; instrumentId: number }) =>
+      apiFetch(`/api/watchlists/${watchlistId}/items/${instrumentId}`, { method: 'DELETE' }),
+    onSuccess: (_data, { watchlistId }) => queryClient.invalidateQueries({ queryKey: queryKeys.watchlists.view(watchlistId) }),
+  })
+
+  function createWatchlist(e: FormEvent) {
     e.preventDefault()
     if (!newName.trim()) return
-    const created = await apiFetch<WatchlistOut>('/api/watchlists', { method: 'POST', body: JSON.stringify({ name: newName.trim() }) })
-    setNewName('')
-    setCreating(false)
-    await reloadList()
-    setActiveId(created.id)
+    createMutation.mutate(newName.trim())
   }
 
-  async function deleteActive() {
+  function deleteActive() {
     if (!active || !confirm(`Delete watchlist "${active.name}"?`)) return
-    await apiFetch(`/api/watchlists/${active.id}`, { method: 'DELETE' })
-    setActiveId(null)
-    reloadList()
+    deleteMutation.mutate(active.id)
   }
 
-  async function remove(instrumentId: number) {
+  function remove(instrumentId: number, symbol: string) {
     if (!active) return
-    await apiFetch(`/api/watchlists/${active.id}/items/${instrumentId}`, { method: 'DELETE' })
-    reloadView()
+    removeItemMutation.mutate({ watchlistId: active.id, instrumentId })
+    toast(`${symbol} removed`)
   }
 
   const rows = view?.items ?? []
+
+  const columns: DataTableColumn<WatchlistViewRow>[] = [
+    {
+      header: 'Symbol',
+      render: (row) => (
+        <>
+          <strong>{row.symbol}</strong>
+          <div style={{ fontSize: 12, color: 'var(--color-neutral-600)' }}>{row.company_name}</div>
+        </>
+      ),
+    },
+    {
+      header: 'Sector',
+      render: (row) => (row.sector ? <span className="tag tag-outline" style={{ whiteSpace: 'nowrap' }}>{row.sector}</span> : <span className="text-muted">—</span>),
+    },
+    { header: 'Price', align: 'right', render: (row) => fmtPrice(row.close) },
+    {
+      header: 'Day change',
+      align: 'right',
+      render: (row) => {
+        const chg = changeVisual(row.day_change_pct)
+        return (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end', color: chg.color }}>
+            <ChangeGlyph v={chg} />
+            {fmtPct(row.day_change_pct)}
+          </span>
+        )
+      },
+    },
+    {
+      header: 'vs SMA 50',
+      align: 'right',
+      render: (row) => {
+        const sma50 = row.indicators?.sma_50 ?? null
+        const dist50 = row.close !== null && sma50 ? ((row.close - sma50) / sma50) * 100 : null
+        return <span style={{ color: changeVisual(dist50).color }}>{fmtPct(dist50)}</span>
+      },
+    },
+    {
+      header: 'vs SMA 200',
+      align: 'right',
+      render: (row) => {
+        const sma200 = row.indicators?.sma_200 ?? null
+        const dist200 = row.close !== null && sma200 ? ((row.close - sma200) / sma200) * 100 : null
+        return <span style={{ color: changeVisual(dist200).color }}>{fmtPct(dist200)}</span>
+      },
+    },
+    {
+      header: 'Trend',
+      render: (row) => {
+        const tv = trendVisual(row.trend_state)
+        return (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', fontSize: 12, fontWeight: 600, border: `1px solid ${tv.border}`, color: tv.color, background: tv.bg }}>
+            <ChangeGlyph v={tv} />
+            {tv.label}
+          </span>
+        )
+      },
+    },
+    {
+      header: '',
+      stopRowClick: true,
+      render: (row) => (
+        <button type="button" className="btn btn-icon" title="Remove from watchlist" onClick={() => remove(row.instrument_id, row.symbol)}>
+          ×
+        </button>
+      ),
+    },
+  ]
 
   return (
     <div>
@@ -145,10 +242,9 @@ export function WatchlistsPage() {
         {creating ? (
           <form onSubmit={createWatchlist} style={{ display: 'flex', gap: 4 }}>
             <input className="input" autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="List name" style={{ width: 150, fontSize: 13, padding: '5px 8px', minHeight: 0 }} />
-            <button type="submit" className="btn btn-primary blueprint" style={{ fontSize: 12, padding: '4px 10px' }}>
-              <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
+            <BlueprintButton type="submit" style={{ fontSize: 12, padding: '4px 10px' }}>
               Add
-            </button>
+            </BlueprintButton>
             <button type="button" className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => setCreating(false)}>Cancel</button>
           </form>
         ) : (
@@ -164,76 +260,31 @@ export function WatchlistsPage() {
         )}
       </div>
 
-      {listError && (
-        <p style={{ fontSize: 13, color: 'var(--color-neg-text)' }}>Couldn't load your watchlists: {listError}</p>
-      )}
+      {listError && <ErrorText>Couldn't load your watchlists: {listError instanceof ApiError ? listError.message : 'failed to load'}</ErrorText>}
       {!listError && !active && watchlists.length === 0 && <p className="text-muted" style={{ fontSize: 13 }}>No watchlists yet — create one above.</p>}
 
       {active && (
         <>
-          <AddInstrument watchlistId={active.id} onAdded={reloadView} />
+          <AddInstrument watchlistId={active.id} onAdded={() => queryClient.invalidateQueries({ queryKey: queryKeys.watchlists.view(active.id) })} />
 
           {viewError ? (
-            <p style={{ fontSize: 13, color: 'var(--color-neg-text)' }}>Couldn't load this watchlist: {viewError}</p>
+            <ErrorText>Couldn't load this watchlist: {viewError instanceof ApiError ? viewError.message : 'failed to load'}</ErrorText>
           ) : rows.length === 0 ? (
-            <div className="card blueprint" style={{ maxWidth: 480, padding: 28 }}>
-              <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
-              <div className="card-kicker">{active.name}</div>
-              <div className="card-title">Nothing in this list yet</div>
-              <p className="card-body">Search for a symbol above, or run a screen and add matches straight from the results.</p>
-              <button type="button" className="btn btn-primary blueprint" onClick={() => navigate('/screener')} style={{ whiteSpace: 'nowrap' }}>
-                <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
-                Go to Screener
-              </button>
-            </div>
+            <EmptyState
+              style={{ maxWidth: 480 }}
+              kicker={active.name}
+              title="Nothing in this list yet"
+              body="Search for a symbol above, or run a screen and add matches straight from the results."
+              actionLabel="Go to Screener"
+              onAction={() => navigate('/screener')}
+            />
           ) : (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Symbol</th><th>Sector</th><th style={{ textAlign: 'right' }}>Price</th><th style={{ textAlign: 'right' }}>Day change</th>
-                  <th style={{ textAlign: 'right' }}>vs SMA 50</th><th style={{ textAlign: 'right' }}>vs SMA 200</th><th>Trend</th><th />
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => {
-                  const chg = changeVisual(row.day_change_pct)
-                  const sma50 = row.indicators?.sma_50 ?? null
-                  const sma200 = row.indicators?.sma_200 ?? null
-                  const dist50 = row.close !== null && sma50 ? ((row.close - sma50) / sma50) * 100 : null
-                  const dist200 = row.close !== null && sma200 ? ((row.close - sma200) / sma200) * 100 : null
-                  const d50v = changeVisual(dist50)
-                  const d200v = changeVisual(dist200)
-                  const tv = trendVisual(row.trend_state)
-                  return (
-                    <tr key={row.instrument_id} onClick={() => navigate(`/stocks/${row.instrument_id}`, { state: { from: '/watchlists', fromLabel: active.name } })} style={{ cursor: 'pointer' }}>
-                      <td>
-                        <strong>{row.symbol}</strong>
-                        <div style={{ fontSize: 12, color: 'var(--color-neutral-600)' }}>{row.company_name}</div>
-                      </td>
-                      <td>{row.sector ? <span className="tag tag-outline" style={{ whiteSpace: 'nowrap' }}>{row.sector}</span> : <span className="text-muted">—</span>}</td>
-                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtPrice(row.close)}</td>
-                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: chg.color }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
-                          <ChangeGlyph v={chg} />
-                          {fmtPct(row.day_change_pct)}
-                        </span>
-                      </td>
-                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: d50v.color }}>{fmtPct(dist50)}</td>
-                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: d200v.color }}>{fmtPct(dist200)}</td>
-                      <td>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', fontSize: 12, fontWeight: 600, border: `1px solid ${tv.border}`, color: tv.color, background: tv.bg }}>
-                          <ChangeGlyph v={tv} />
-                          {tv.label}
-                        </span>
-                      </td>
-                      <td onClick={(e) => e.stopPropagation()}>
-                        <button type="button" className="btn btn-icon" title="Remove from watchlist" onClick={() => { remove(row.instrument_id); toast(`${row.symbol} removed`) }}>×</button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+            <DataTable
+              columns={columns}
+              rows={rows}
+              rowKey={(row) => row.instrument_id}
+              onRowClick={(row) => navigate(`/stocks/${row.instrument_id}`, { state: { from: '/watchlists', fromLabel: active.name } })}
+            />
           )}
         </>
       )}

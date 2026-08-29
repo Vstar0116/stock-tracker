@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { apiFetch, ApiError, setToken, setUnauthorizedHandler } from './api'
+import { queryClient } from './queryClient'
 import type { LoginResponse, UserOut } from './types'
 
 interface AuthContextValue {
@@ -21,6 +22,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (expiryTimer.current) clearTimeout(expiryTimer.current)
     setToken(null)
     setUser(null)
+    // This is a shared machine's browser as often as not (a private
+    // 4-5 user tool) -- drop every cached query so the next login never
+    // renders a flash of the previous user's watchlists/alerts/etc. before
+    // their own data has re-fetched.
+    queryClient.clear()
   }, [])
 
   useEffect(() => {

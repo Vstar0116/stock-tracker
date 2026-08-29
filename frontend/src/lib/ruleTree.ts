@@ -47,9 +47,12 @@ function parseOperand(value: string): Operand | null {
   const str = value.trim()
   if (!str) return null
   const yesterday = str.match(/^yesterday'?s?\s+(\w+)$/i)
-  if (yesterday && NUMERIC_FIELDS.includes(yesterday[1])) return { field: yesterday[1], when: 'yesterday' }
+  const yesterdayField = yesterday?.[1]
+  if (yesterdayField && NUMERIC_FIELDS.includes(yesterdayField)) return { field: yesterdayField, when: 'yesterday' }
   const mult = str.match(/^([\d.]+)\s*x\s+(\w+)$/i)
-  if (mult) return { field: mult[2], multiplier: parseFloat(mult[1]) }
+  const multScalar = mult?.[1]
+  const multField = mult?.[2]
+  if (multScalar !== undefined && multField !== undefined) return { field: multField, multiplier: parseFloat(multScalar) }
   if (NUMERIC_FIELDS.includes(str)) return { field: str }
   const num = parseFloat(str)
   return isNaN(num) ? null : num
@@ -86,8 +89,10 @@ function leafToRule(leaf: UiRuleLeaf): ScreenRule | null {
   }
   if (operator === 'between') {
     const m = value.match(/([\d.]+)\s*(?:and|-|to)\s*([\d.]+)/i)
-    if (!m) return null
-    return { type: 'between', field, low: parseFloat(m[1]), high: parseFloat(m[2]) }
+    const low = m?.[1]
+    const high = m?.[2]
+    if (low === undefined || high === undefined) return null
+    return { type: 'between', field, low: parseFloat(low), high: parseFloat(high) }
   }
   if (operator === 'crossed above' || operator === 'crossed below') {
     const operand = parseOperand(value)
@@ -123,7 +128,7 @@ function ruleToLeaf(rule: Exclude<ScreenRule, { type: 'group' }>): UiRuleLeaf {
       return { type: 'rule', field: rule.field, operator: 'between', value: `${rule.low} and ${rule.high}` }
     case 'in':
       return rule.values.length === 1
-        ? { type: 'rule', field: rule.field, operator: '=', value: rule.values[0] }
+        ? { type: 'rule', field: rule.field, operator: '=', value: rule.values[0] ?? '' }
         : { type: 'rule', field: rule.field, operator: 'in', value: rule.values.join(', ') }
     case 'crossed_above':
       return { type: 'rule', field: rule.field, operator: 'crossed above', value: operandToText(rule.value) }
@@ -152,8 +157,17 @@ export function collectFields(node: UiRuleNode, out: Set<string> = new Set()): S
 function updateAtPath(node: UiRuleGroup, path: number[], fn: (n: UiRuleNode) => UiRuleNode): UiRuleGroup {
   if (path.length === 0) return fn(node) as UiRuleGroup
   const [i, ...rest] = path
+  // `path` is always built by walking this exact tree (RuleGroup.tsx), so
+  // `i` is always a valid in-bounds index into node.children -- neither of
+  // these can actually be undefined/out-of-range at runtime, just not
+  // something noUncheckedIndexedAccess can prove from the types alone.
+  // Falling back to `node` unchanged (rather than throwing) if that
+  // invariant is ever violated is a deliberate no-op, not a crash.
+  if (i === undefined) return node
+  const target = node.children[i]
+  if (target === undefined) return node
   const children = node.children.slice()
-  children[i] = rest.length === 0 ? fn(children[i]) : updateAtPath(children[i] as UiRuleGroup, rest, fn)
+  children[i] = rest.length === 0 ? fn(target) : updateAtPath(target as UiRuleGroup, rest, fn)
   return { ...node, children }
 }
 
@@ -177,7 +191,7 @@ export function applyRuleAction(root: UiRuleGroup, path: number[], action: RuleA
         return { ...(node as UiRuleGroup), op: payload as 'AND' | 'OR' }
       case 'setField': {
         const field = payload!
-        return { type: 'rule', field, operator: operatorsFor(field)[0], value: '' }
+        return { type: 'rule', field, operator: operatorsFor(field)[0] ?? '>', value: '' }
       }
       case 'setOperator':
         return { ...(node as UiRuleLeaf), operator: payload! }

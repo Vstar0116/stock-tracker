@@ -68,6 +68,11 @@ app.add_middleware(
     allow_origins=settings.cors_origin_list,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Browsers only expose a small safelisted set of response headers to
+    # cross-origin JS by default -- X-Request-ID (app/request_id.py) isn't
+    # in it, so without this the frontend's `res.headers.get('X-Request-ID')`
+    # would silently always return null.
+    expose_headers=["X-Request-ID"],
 )
 
 

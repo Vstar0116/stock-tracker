@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { NavLink, Outlet } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { useHeader } from '../lib/pageHeader'
+import { queryKeys } from '../lib/queryKeys'
 import type { AlertOut, Page, StatusOut } from '../lib/types'
+import { ErrorBoundary } from './ErrorBoundary'
 
 const POLL_MS = 5 * 60_000
 
@@ -59,18 +61,17 @@ const NAV_ITEMS = [
 ]
 
 function FreshnessBox() {
-  const [status, setStatus] = useState<StatusOut | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    const load = () => apiFetch<StatusOut>('/api/status').then((s) => !cancelled && setStatus(s)).catch(() => {})
-    load()
-    const id = setInterval(load, POLL_MS)
-    return () => {
-      cancelled = true
-      clearInterval(id)
-    }
-  }, [])
+  // Was its own hand-rolled setInterval poll, entirely independent of
+  // StatusPage's own separate fetch of the same underlying pipeline-status
+  // data (via /api/status/detail) -- two uncoordinated polls of
+  // overlapping data. Both now key off queryKeys.status, so a future
+  // mutation that touches pipeline status only needs to invalidate one key
+  // to refresh both.
+  const { data: status } = useQuery({
+    queryKey: queryKeys.status.summary(),
+    queryFn: () => apiFetch<StatusOut>('/api/status'),
+    refetchInterval: POLL_MS,
+  })
 
   if (!status) return null
   const isStale = !status.is_current
@@ -109,21 +110,18 @@ function FreshnessBox() {
 }
 
 function useUnseenAlertsCount(): number {
-  const [count, setCount] = useState(0)
-  useEffect(() => {
-    let cancelled = false
-    const load = () =>
-      apiFetch<Page<AlertOut>>('/api/alerts?seen=false&limit=1')
-        .then((p) => !cancelled && setCount(p.total))
-        .catch(() => {})
-    load()
-    const id = setInterval(load, POLL_MS)
-    return () => {
-      cancelled = true
-      clearInterval(id)
-    }
-  }, [])
-  return count
+  // Used to be its own independent 5-minute poll, uncoordinated with
+  // AlertsPage's own fetch of the full alerts list -- marking an alert seen
+  // there didn't update this badge until its own next poll fired, up to 5
+  // minutes later. AlertsPage's markSeen/markAllSeenFiltered mutations now
+  // invalidate queryKeys.alerts.all, which includes this query's key, so
+  // the badge updates as soon as the mutation settles instead.
+  const { data } = useQuery({
+    queryKey: queryKeys.alerts.unseenCount(),
+    queryFn: () => apiFetch<Page<AlertOut>>('/api/alerts?seen=false&limit=1'),
+    refetchInterval: POLL_MS,
+  })
+  return data?.total ?? 0
 }
 
 export function AppShell() {
@@ -185,7 +183,14 @@ export function AppShell() {
           </div>
         </header>
         <main style={{ flex: 1, overflowY: 'auto', padding: '24px 28px 60px' }}>
-          <Outlet />
+          {/* A second, inner boundary -- a crash inside one page's render
+              resets just this <Outlet/>, leaving the nav sidebar and header
+              (and the "Log out" button) still usable instead of blanking
+              the whole app. App.tsx's outer ErrorBoundary is the backstop
+              for anything above this (AppShell itself, the providers). */}
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

@@ -1,6 +1,9 @@
+import { useQuery } from '@tanstack/react-query'
+import { ErrorText, LoadingText } from '../components/ui'
+import { apiFetch, ApiError } from '../lib/api'
 import { fmtNum } from '../lib/format'
 import { usePageHeader } from '../lib/pageHeader'
-import { useFetch } from '../lib/useFetch'
+import { queryKeys } from '../lib/queryKeys'
 import type { StatusDetailOut } from '../lib/types'
 
 function ago(iso: string | null): string {
@@ -41,11 +44,13 @@ function FreshnessCard({ status }: { status: StatusDetailOut }) {
 
 export function StatusPage() {
   usePageHeader('System Status', 'Admin-only: pipeline health, data freshness, and job history')
-  const { data: status, loading, error } = useFetch<StatusDetailOut>('/api/status/detail')
+  const { data: status, isPending, error } = useQuery({
+    queryKey: queryKeys.status.detail(),
+    queryFn: () => apiFetch<StatusDetailOut>('/api/status/detail'),
+  })
 
-  if (loading) return <p>Loading…</p>
-  if (error) return <p style={{ color: 'var(--color-neg-text)' }}>{error}</p>
-  if (!status) return null
+  if (isPending) return <LoadingText />
+  if (error) return <ErrorText>{error instanceof ApiError ? error.message : 'failed to load'}</ErrorText>
 
   return (
     <div style={{ maxWidth: 900 }}>

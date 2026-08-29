@@ -21,11 +21,25 @@ export function setUnauthorizedHandler(handler: (() => void) | null) {
   onUnauthorized = handler
 }
 
+// The backend echoes a per-request correlation id (app/request_id.py) on
+// every response, success or failure. Tracked here so ErrorBoundary can
+// show a "reference: <id>" hint on an unrelated render crash -- best
+// effort, not a guarantee the crash and this id are the same request, but
+// usually they are (the crash typically follows right after the fetch that
+// exposed the bad data).
+let lastRequestId: string | null = null
+
+export function getLastRequestId(): string | null {
+  return lastRequestId
+}
+
 export class ApiError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  requestId: string | null
+  constructor(status: number, message: string, requestId: string | null = null) {
     super(message)
     this.status = status
+    this.requestId = requestId
   }
 }
 
@@ -42,17 +56,19 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   if (token) headers.set('Authorization', `Bearer ${token}`)
 
   const res = await fetch(`${API_BASE_URL}${path}`, { ...init, headers })
+  const requestId = res.headers.get('X-Request-ID')
+  if (requestId) lastRequestId = requestId
 
   if (res.status === 401) {
     onUnauthorized?.()
-    throw new ApiError(401, 'not authenticated')
+    throw new ApiError(401, 'not authenticated', requestId)
   }
   if (res.status === 204) return undefined as T
 
   const body = await res.json().catch(() => null)
   if (!res.ok) {
     const message = (body && typeof body.detail === 'string' ? body.detail : null) ?? res.statusText
-    throw new ApiError(res.status, message)
+    throw new ApiError(res.status, message, requestId)
   }
   return body as T
 }

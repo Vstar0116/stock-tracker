@@ -1,8 +1,10 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { apiFetch } from '../lib/api'
+import { EmptyState, ErrorText } from '../components/ui'
+import { apiFetch, ApiError } from '../lib/api'
 import { usePageHeader } from '../lib/pageHeader'
-import { useFetch } from '../lib/useFetch'
+import { queryKeys } from '../lib/queryKeys'
 import type { AlertOut, Page, ScreenOut } from '../lib/types'
 
 const DATE_RANGES = [
@@ -34,8 +36,16 @@ function snapshotLine(snapshot: Record<string, number | string | null>): string 
 export function AlertsPage() {
   usePageHeader('Alerts')
   const navigate = useNavigate()
-  const { data, error: alertsError, reload } = useFetch<Page<AlertOut>>('/api/alerts?limit=200')
-  const { data: screensPage } = useFetch<Page<ScreenOut>>('/api/screens?limit=200')
+  const queryClient = useQueryClient()
+
+  const { data, error: alertsError } = useQuery({
+    queryKey: queryKeys.alerts.list(),
+    queryFn: () => apiFetch<Page<AlertOut>>('/api/alerts?limit=200'),
+  })
+  const { data: screensPage } = useQuery({
+    queryKey: queryKeys.screens.list(),
+    queryFn: () => apiFetch<Page<ScreenOut>>('/api/screens?limit=200'),
+  })
 
   const [screenFilter, setScreenFilter] = useState('all')
   const [dateRange, setDateRange] = useState('all')
@@ -70,15 +80,24 @@ export function AlertsPage() {
     return out
   }, [filtered])
 
-  async function markSeen(id: number) {
-    await apiFetch(`/api/alerts/${id}/seen`, { method: 'POST' })
-    reload()
-  }
+  // Invalidating queryKeys.alerts.all (not just .list()) is what makes
+  // AppShell's independently-polled unseen-count badge (queryKeys.alerts.
+  // unseenCount(), a sibling key under the same .all root) update right
+  // away instead of on its own next 5-minute poll -- the bug this
+  // migration was partly done to fix.
+  const markSeenMutation = useMutation({
+    mutationFn: (id: number) => apiFetch(`/api/alerts/${id}/seen`, { method: 'POST' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.alerts.all }),
+  })
 
-  async function markAllSeenFiltered() {
-    const unseen = filtered.filter((a) => !a.seen)
-    await Promise.all(unseen.map((a) => apiFetch(`/api/alerts/${a.id}/seen`, { method: 'POST' })))
-    reload()
+  const markAllSeenMutation = useMutation({
+    mutationFn: (ids: number[]) => Promise.all(ids.map((id) => apiFetch(`/api/alerts/${id}/seen`, { method: 'POST' }))),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.alerts.all }),
+  })
+
+  function markAllSeenFiltered() {
+    const unseen = filtered.filter((a) => !a.seen).map((a) => a.id)
+    if (unseen.length > 0) markAllSeenMutation.mutate(unseen)
   }
 
   return (
@@ -107,25 +126,21 @@ export function AlertsPage() {
         </button>
       </div>
 
-      {alertsError && (
-        <p style={{ fontSize: 13, color: 'var(--color-neg-text)' }}>Couldn't load alerts: {alertsError}</p>
-      )}
+      {alertsError && <ErrorText>Couldn't load alerts: {alertsError instanceof ApiError ? alertsError.message : 'failed to load'}</ErrorText>}
 
       {!alertsError && filtered.length === 0 && (
-        <div className="card blueprint" style={{ maxWidth: 520, padding: 30 }}>
-          <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
-          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--color-neutral-500)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 12 }}>
-            <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-          </svg>
-          <div className="card-title">No alerts match these filters</div>
-          <p className="card-body">
-            Alerts fire here automatically whenever a saved screen finds a new match. Try widening the filters above, or set up a new screen to start watching for something.
-          </p>
-          <button type="button" className="btn btn-primary blueprint" onClick={() => navigate('/screener')} style={{ whiteSpace: 'nowrap' }}>
-            <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
-            Go to Screener
-          </button>
-        </div>
+        <EmptyState
+          style={{ maxWidth: 520 }}
+          icon={
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--color-neutral-500)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 12 }}>
+              <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+            </svg>
+          }
+          title="No alerts match these filters"
+          body="Alerts fire here automatically whenever a saved screen finds a new match. Try widening the filters above, or set up a new screen to start watching for something."
+          actionLabel="Go to Screener"
+          onAction={() => navigate('/screener')}
+        />
       )}
 
       {groups.map((grp) => (
@@ -156,7 +171,7 @@ export function AlertsPage() {
               {a.seen ? (
                 <span style={{ fontSize: 11.5, color: 'var(--color-neutral-500)', whiteSpace: 'nowrap', paddingTop: 2 }}>Seen</span>
               ) : (
-                <button type="button" className="btn btn-secondary" onClick={() => markSeen(a.id)} style={{ whiteSpace: 'nowrap', flexShrink: 0, fontSize: 12, padding: '5px 11px', marginBottom: 0 }}>
+                <button type="button" className="btn btn-secondary" onClick={() => markSeenMutation.mutate(a.id)} style={{ whiteSpace: 'nowrap', flexShrink: 0, fontSize: 12, padding: '5px 11px', marginBottom: 0 }}>
                   Mark seen
                 </button>
               )}

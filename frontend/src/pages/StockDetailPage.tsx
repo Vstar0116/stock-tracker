@@ -1,11 +1,14 @@
+import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { TradingViewChart } from '../components/TradingViewChart'
+import { BlueprintCard, DataTable, ErrorText, LoadingText, type DataTableColumn } from '../components/ui'
 import { apiFetch, ApiError } from '../lib/api'
 import { changeVisual, ChangeGlyph, fmtNum, fmtPct, fmtPrice, indianNum } from '../lib/format'
 import { usePageHeader } from '../lib/pageHeader'
-import { useFetch } from '../lib/useFetch'
-import type { CrossoverSeriesOut, InstrumentDetail, Page, PriceOut } from '../lib/types'
+import { queryKeys } from '../lib/queryKeys'
+import { isCrossoverInvalid } from '../lib/validation'
+import type { CrossoverSeriesOut, InstrumentDetail, MaType, Page, PriceOut } from '../lib/types'
 
 interface IndicatorRow {
   label: string
@@ -15,8 +18,7 @@ interface IndicatorRow {
 
 function IndicatorCard({ kicker, rows }: { kicker: string; rows: IndicatorRow[] }) {
   return (
-    <div className="card blueprint" style={{ padding: 16 }}>
-      <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
+    <BlueprintCard style={{ padding: 16 }}>
       <div className="card-kicker">{kicker}</div>
       {rows.map((it) => (
         <div key={it.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--color-neutral-200)', fontSize: 13 }}>
@@ -29,59 +31,53 @@ function IndicatorCard({ kicker, rows }: { kicker: string; rows: IndicatorRow[] 
           </span>
         </div>
       ))}
-    </div>
+    </BlueprintCard>
   )
 }
 
 function CustomCrossoverCard({ instrumentId }: { instrumentId: number }) {
   const [fast, setFast] = useState('9')
   const [slow, setSlow] = useState('21')
-  const [maType, setMaType] = useState<'sma' | 'ema'>('ema')
-  const [result, setResult] = useState<CrossoverSeriesOut | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [maType, setMaType] = useState<MaType>('ema')
 
   const fastNum = Number(fast)
   const slowNum = Number(slow)
-  const invalid = !Number.isInteger(fastNum) || !Number.isInteger(slowNum) || fastNum < 1 || fastNum >= slowNum || slowNum > 400
+  const invalid = isCrossoverInvalid(fast, slow)
 
-  async function run() {
-    if (invalid) return
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await apiFetch<CrossoverSeriesOut>(
-        `/api/instruments/${instrumentId}/crossover?fast=${fastNum}&slow=${slowNum}&ma_type=${maType}`,
-      )
-      setResult(res)
-    } catch (err) {
-      setResult(null)
-      setError(err instanceof ApiError ? err.message : 'failed to compute crossover')
-    } finally {
-      setLoading(false)
-    }
+  // enabled: false + manual refetch() -- this is a "run on click" action,
+  // never on param change (matches the existing UX exactly), but framing it
+  // as a query rather than a hand-rolled fetch/loading/error triad means a
+  // repeat click with the same fast/slow/ma_type is served from cache
+  // instead of re-hitting the API.
+  const { data: result, isFetching, error, refetch } = useQuery({
+    queryKey: queryKeys.instruments.crossover(instrumentId, fastNum, slowNum, maType),
+    queryFn: () => apiFetch<CrossoverSeriesOut>(`/api/instruments/${instrumentId}/crossover?fast=${fastNum}&slow=${slowNum}&ma_type=${maType}`),
+    enabled: false,
+  })
+
+  function run() {
+    if (!invalid) refetch()
   }
 
   const last = result?.points[result.points.length - 1] ?? null
 
   return (
-    <div className="card blueprint" style={{ padding: 16 }}>
-      <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
+    <BlueprintCard style={{ padding: 16 }}>
       <div className="card-kicker">Custom crossover</div>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
         <input className="input" style={{ width: 64, fontSize: 13, padding: '5px 8px' }} value={fast} onChange={(e) => setFast(e.target.value)} placeholder="fast" />
         <span style={{ color: 'var(--color-neutral-500)' }}>/</span>
         <input className="input" style={{ width: 64, fontSize: 13, padding: '5px 8px' }} value={slow} onChange={(e) => setSlow(e.target.value)} placeholder="slow" />
-        <select className="input" style={{ width: 84, fontSize: 13, padding: '5px 8px' }} value={maType} onChange={(e) => setMaType(e.target.value as 'sma' | 'ema')}>
+        <select className="input" style={{ width: 84, fontSize: 13, padding: '5px 8px' }} value={maType} onChange={(e) => setMaType(e.target.value as MaType)}>
           <option value="sma">SMA</option>
           <option value="ema">EMA</option>
         </select>
-        <button type="button" className="btn btn-secondary" style={{ fontSize: 12.5, padding: '5px 12px' }} onClick={run} disabled={invalid || loading}>
-          {loading ? 'Computing…' : 'Compute'}
+        <button type="button" className="btn btn-secondary" style={{ fontSize: 12.5, padding: '5px 12px' }} onClick={run} disabled={invalid || isFetching}>
+          {isFetching ? 'Computing…' : 'Compute'}
         </button>
       </div>
       {invalid && <p className="text-muted" style={{ fontSize: 12 }}>fast must be a positive integer less than slow (max 400).</p>}
-      {error && <p style={{ fontSize: 12, color: 'var(--color-neg-text)' }}>{error}</p>}
+      {error && <ErrorText style={{ fontSize: 12 }}>{error instanceof ApiError ? error.message : 'failed to compute crossover'}</ErrorText>}
       {last && (
         <div style={{ fontSize: 13 }}>
           <div>Fast ({fastNum}): <strong>{last.fast?.toFixed(2) ?? '—'}</strong></div>
@@ -95,7 +91,7 @@ function CustomCrossoverCard({ instrumentId }: { instrumentId: number }) {
           </div>
         </div>
       )}
-    </div>
+    </BlueprintCard>
   )
 }
 
@@ -106,7 +102,10 @@ export function StockDetailPage() {
   const location = useLocation()
   const back = location.state as { from?: string; fromLabel?: string } | null
 
-  const { data: instrument, loading, error } = useFetch<InstrumentDetail>(`/api/instruments/${instrumentId}`, [instrumentId])
+  const { data: instrument, isPending, error } = useQuery({
+    queryKey: queryKeys.instruments.detail(instrumentId),
+    queryFn: () => apiFetch<InstrumentDetail>(`/api/instruments/${instrumentId}`),
+  })
   usePageHeader(instrument?.symbol ?? '…', instrument?.company_name ?? null)
 
   // The prices endpoint always orders ascending with no "latest first" option,
@@ -116,12 +115,14 @@ export function StockDetailPage() {
   const sinceDate = new Date()
   sinceDate.setDate(sinceDate.getDate() - 60)
   const since = sinceDate.toISOString().slice(0, 10)
-  const { data: prices } = useFetch<Page<PriceOut>>(`/api/instruments/${instrumentId}/prices?from=${since}&limit=200`, [instrumentId])
+  const { data: prices } = useQuery({
+    queryKey: queryKeys.instruments.prices(instrumentId, since),
+    queryFn: () => apiFetch<Page<PriceOut>>(`/api/instruments/${instrumentId}/prices?from=${since}&limit=200`),
+  })
   const recentPrices = prices ? [...prices.items].reverse().slice(0, 15) : []
 
-  if (loading) return <p className="text-muted" style={{ fontSize: 13 }}>Loading…</p>
-  if (error) return <p style={{ fontSize: 13, color: 'var(--color-neg-text)' }}>{error}</p>
-  if (!instrument) return null
+  if (isPending) return <LoadingText />
+  if (error) return <ErrorText style={{ fontSize: 13 }}>{error instanceof ApiError ? error.message : 'failed to load'}</ErrorText>
 
   const ind = instrument.latest_indicators
   const chg = changeVisual(instrument.day_change_pct)
@@ -131,6 +132,15 @@ export function StockDetailPage() {
     : rsi !== null && rsi <= 30
       ? { label: 'Oversold', bg: 'var(--color-warn-bg)', color: 'var(--color-warn-text)' }
       : null
+
+  const priceColumns: DataTableColumn<PriceOut>[] = [
+    { header: 'Date', render: (p) => <span className="text-muted">{p.trade_date}</span> },
+    { header: 'Open', align: 'right', render: (p) => fmtNum(p.open) },
+    { header: 'High', align: 'right', render: (p) => fmtNum(p.high) },
+    { header: 'Low', align: 'right', render: (p) => fmtNum(p.low) },
+    { header: 'Close', align: 'right', render: (p) => <strong>{fmtNum(p.close)}</strong> },
+    { header: 'Volume', align: 'right', render: (p) => indianNum(p.volume, 0) },
+  ]
 
   return (
     <div style={{ maxWidth: 1100 }}>
@@ -160,8 +170,7 @@ export function StockDetailPage() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20, alignItems: 'start' }}>
-        <div className="card blueprint" style={{ padding: 16 }}>
-          <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
+        <BlueprintCard style={{ padding: 16 }}>
           <TradingViewChart
             symbol={
               instrument.exchange === 'BSE' && instrument.bse_scrip_code
@@ -173,24 +182,8 @@ export function StockDetailPage() {
           <div className="demo-head" style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--color-neutral-600)', margin: '20px 0 8px' }}>
             Recent price history
           </div>
-          <table className="table">
-            <thead>
-              <tr><th>Date</th><th style={{ textAlign: 'right' }}>Open</th><th style={{ textAlign: 'right' }}>High</th><th style={{ textAlign: 'right' }}>Low</th><th style={{ textAlign: 'right' }}>Close</th><th style={{ textAlign: 'right' }}>Volume</th></tr>
-            </thead>
-            <tbody>
-              {recentPrices.map((p) => (
-                <tr key={p.trade_date}>
-                  <td className="text-muted">{p.trade_date}</td>
-                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(p.open)}</td>
-                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(p.high)}</td>
-                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(p.low)}</td>
-                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmtNum(p.close)}</td>
-                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{indianNum(p.volume, 0)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+          <DataTable columns={priceColumns} rows={recentPrices} rowKey={(p) => p.trade_date} />
+        </BlueprintCard>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <IndicatorCard

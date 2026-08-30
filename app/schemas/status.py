@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -28,3 +29,21 @@ class StatusDetailOut(StatusOut):
     recent_job_runs: list[JobRunOut]
     nl_screen_configured: bool
     nl_screen_reachable: bool
+
+
+class DownloadOut(BaseModel):
+    """One NSE/BSE bhavcopy ingest attempt -- job_runs rows for job_name
+    ingest_prices_nse/ingest_prices_bse, filtered to just those two and
+    relabeled for the "download history" view (app/api/status.py)."""
+
+    exchange: Literal["NSE", "BSE"]
+    trade_date: date
+    status: str
+    rows_processed: int | None
+    started_at: datetime
+    finished_at: datetime | None
+    error_message: str | None
+
+
+class TriggerPipelineOut(BaseModel):
+    triggered: bool

@@ -186,6 +186,20 @@ export interface StatusDetailOut extends StatusOut {
   nl_screen_reachable: boolean
 }
 
+export interface DownloadOut {
+  exchange: 'NSE' | 'BSE'
+  trade_date: string
+  status: string
+  rows_processed: number | null
+  started_at: string
+  finished_at: string | null
+  error_message: string | null
+}
+
+export interface TriggerPipelineOut {
+  triggered: boolean
+}
+
 // Mirrors app/schemas/crossover.py
 
 export type MaType = 'sma' | 'ema'

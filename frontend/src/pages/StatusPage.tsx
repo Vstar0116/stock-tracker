@@ -1,7 +1,10 @@
+import { useState } from 'react'
+import { apiFetch, ApiError } from '../lib/api'
 import { fmtNum } from '../lib/format'
 import { usePageHeader } from '../lib/pageHeader'
+import { useToast } from '../lib/toast'
 import { useFetch } from '../lib/useFetch'
-import type { StatusDetailOut } from '../lib/types'
+import type { DownloadOut, Page, StatusDetailOut, TriggerPipelineOut } from '../lib/types'
 
 function ago(iso: string | null): string {
   if (!iso) return 'never'
@@ -41,7 +44,25 @@ function FreshnessCard({ status }: { status: StatusDetailOut }) {
 
 export function StatusPage() {
   usePageHeader('System Status', 'Admin-only: pipeline health, data freshness, and job history')
-  const { data: status, loading, error } = useFetch<StatusDetailOut>('/api/status/detail')
+  const { data: status, loading, error, reload } = useFetch<StatusDetailOut>('/api/status/detail')
+  const { data: downloads, reload: reloadDownloads } = useFetch<Page<DownloadOut>>('/api/status/downloads?limit=30')
+  const toast = useToast()
+  const [triggering, setTriggering] = useState(false)
+
+  async function runNow() {
+    if (triggering) return
+    setTriggering(true)
+    try {
+      await apiFetch<TriggerPipelineOut>('/api/status/run-now', { method: 'POST' })
+      toast('Pipeline triggered — check back in a few minutes')
+      reload()
+      reloadDownloads()
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'failed to trigger pipeline')
+    } finally {
+      setTriggering(false)
+    }
+  }
 
   if (loading) return <p>Loading…</p>
   if (error) return <p style={{ color: 'var(--color-neg-text)' }}>{error}</p>
@@ -49,6 +70,11 @@ export function StatusPage() {
 
   return (
     <div style={{ maxWidth: 900 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <button type="button" className="btn btn-secondary" onClick={runNow} disabled={triggering}>
+          {triggering ? 'Triggering…' : 'Run pipeline now'}
+        </button>
+      </div>
       <FreshnessCard status={status} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 24 }}>
@@ -119,6 +145,41 @@ export function StatusPage() {
           {status.recent_job_runs.length === 0 && (
             <tr>
               <td colSpan={5} style={{ color: 'var(--color-neutral-600)' }}>No job runs recorded yet.</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 13, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--color-neutral-600)', margin: '24px 0 8px' }}>
+        Recent downloads
+      </div>
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Exchange</th>
+            <th>Trade date</th>
+            <th>Status</th>
+            <th>Rows</th>
+            <th>Started</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(downloads?.items ?? []).map((d, i) => (
+            <tr key={i}>
+              <td>{d.exchange}</td>
+              <td>{d.trade_date}</td>
+              <td>
+                <span className="tag" style={{ background: d.status === 'success' ? 'var(--color-pos-bg)' : d.status === 'failed' ? 'var(--color-neg-bg)' : 'var(--color-neutral-100)', color: d.status === 'success' ? 'var(--color-pos-text)' : d.status === 'failed' ? 'var(--color-neg-text)' : 'var(--color-neutral-800)' }} title={d.error_message ?? undefined}>
+                  {d.status}
+                </span>
+              </td>
+              <td>{d.rows_processed ?? '—'}</td>
+              <td>{new Date(d.started_at).toLocaleString('en-IN')}</td>
+            </tr>
+          ))}
+          {(downloads?.items.length ?? 0) === 0 && (
+            <tr>
+              <td colSpan={5} style={{ color: 'var(--color-neutral-600)' }}>No downloads recorded yet.</td>
             </tr>
           )}
         </tbody>

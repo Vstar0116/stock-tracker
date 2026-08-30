@@ -448,6 +448,68 @@ class TestStatus:
         assert body["last_pipeline_status"] == "failed"  # most recent run, regardless of outcome
         assert body["last_successful_pipeline_run_at"].startswith("2099-01-01")
 
+    def test_downloads_returns_only_ingest_price_jobs_paginated(self, client, owner, db):
+        t0 = datetime(2099, 1, 1, tzinfo=timezone.utc)
+        t1 = datetime(2099, 1, 2, tzinfo=timezone.utc)
+        db.add(JobRun(job_name="ingest_prices_nse", run_date=t0.date(), status="success",
+                       started_at=t0, finished_at=t0, rows_processed=2500))
+        db.add(JobRun(job_name="ingest_prices_bse", run_date=t1.date(), status="failed",
+                       started_at=t1, finished_at=t1, error_message="boom"))
+        db.add(JobRun(job_name="compute_indicators", run_date=t1.date(), status="success",
+                       started_at=t1, finished_at=t1, rows_processed=99))  # not a download -- must be excluded
+        db.flush()
+
+        resp = client.get("/api/status/downloads", headers=_auth(owner))
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 2
+        exchanges = {item["exchange"] for item in body["items"]}
+        assert exchanges == {"NSE", "BSE"}
+        # newest first
+        assert body["items"][0]["trade_date"] == "2099-01-02"
+        assert body["items"][0]["status"] == "failed"
+        assert body["items"][0]["error_message"] == "boom"
+
+        paged = client.get("/api/status/downloads?limit=1", headers=_auth(owner))
+        assert paged.status_code == 200
+        assert len(paged.json()["items"]) == 1
+        assert paged.json()["total"] == 2
+
+    def test_run_now_triggers_subprocess_and_returns_202(self, client, owner, monkeypatch):
+        from app.api import status as status_module
+
+        calls = []
+        monkeypatch.setattr(status_module.subprocess, "Popen", lambda *a, **k: calls.append((a, k)))
+
+        resp = client.post("/api/status/run-now", headers=_auth(owner))
+        assert resp.status_code == 202
+        assert resp.json() == {"triggered": True}
+        assert len(calls) == 1
+        (argv,), kwargs = calls[0]
+        assert argv == [status_module.sys.executable, "-m", "app.jobs.daily_pipeline"]
+        assert kwargs["start_new_session"] is True
+
+    def test_run_now_requires_auth(self, client):
+        resp = client.post("/api/status/run-now")
+        assert resp.status_code == 401
+
+    def test_run_now_daily_cap_blocks_after_limit_and_is_per_user(self, client, owner, other_user, monkeypatch):
+        from app.api import status as status_module
+
+        monkeypatch.setattr(status_module.subprocess, "Popen", lambda *a, **k: None)
+
+        headers = _auth(owner)
+        for _ in range(status_module.pipeline_trigger_limiter.max_requests):
+            resp = client.post("/api/status/run-now", headers=headers)
+            assert resp.status_code == 202
+        blocked = client.post("/api/status/run-now", headers=headers)
+        assert blocked.status_code == 429
+        assert "daily limit" in blocked.json()["detail"]
+
+        # A different user has their own, untouched budget.
+        other_resp = client.post("/api/status/run-now", headers=_auth(other_user))
+        assert other_resp.status_code == 202
+
 
 class TestUnhandledErrors:
     def test_no_traceback_or_internal_detail_leaked_to_client(self, client, owner, monkeypatch):

@@ -14,9 +14,14 @@ function escapeCell(cell: CsvCell): string {
   return raw
 }
 
+// Split out from downloadCsv so the escaping rules above can be tested
+// without a DOM -- downloadCsv itself is all Blob/anchor side effects.
+export function toCsvText(headers: string[], rows: CsvCell[][]): string {
+  return [headers, ...rows].map((row) => row.map(escapeCell).join(',')).join('\r\n')
+}
+
 export function downloadCsv(filename: string, headers: string[], rows: CsvCell[][]): void {
-  const lines = [headers, ...rows].map((row) => row.map(escapeCell).join(','))
-  const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' })
+  const blob = new Blob([toCsvText(headers, rows)], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url

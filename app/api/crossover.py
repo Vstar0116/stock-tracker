@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.jobs.compute_indicators import load_price_history
-from app.models import DailyPrice, Instrument
+from app.models import DailyPrice, Instrument, User
+from app.rate_limit import RateLimiter
 from app.schemas.crossover import (
     CrossoverPoint,
     CrossoverSeriesOut,
@@ -26,6 +27,21 @@ from app.services.crossover import compute_crossover, validate_periods
 from app.services.crossover_loader import run_scan
 
 router = APIRouter(prefix="/api", tags=["crossover"], dependencies=[Depends(get_current_user)])
+
+# Both scan endpoints run a whole-market pandas computation over
+# user-supplied parameters, so they're "expensive endpoints" under
+# CLAUDE.md's security checklist (#12). Beyond raw CPU, every distinct
+# parameter tuple is a fresh cache key in the loaders' lru_caches -- an
+# unlimited sweep both defeats the cache and drives resident memory up, so
+# the cap protects memory as much as CPU. 30/hour per user is far above
+# real interactive use: the scans are button-triggered in CustomScanPage,
+# not re-run as the user types.
+scan_limiter = RateLimiter(
+    key_prefix="scan:user",
+    max_requests=30,
+    window_seconds=3600,
+    message="scan rate limit reached (30/hour) -- results are cached per trading day, so re-running the same scan is free",
+)
 
 
 def _none_if_nan(v: float) -> float | None:
@@ -74,7 +90,12 @@ def get_crossover(
 
 
 @router.post("/scans/crossover", response_model=ScanResponse)
-def scan_crossover(payload: ScanRequest, db: Session = Depends(get_db)) -> ScanResponse:
+def scan_crossover(
+    payload: ScanRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ScanResponse:
+    scan_limiter.check(str(current_user.id))
     try:
         result = run_scan(db, payload.fast, payload.slow, payload.ma_type, payload.direction)
     except ValueError as exc:

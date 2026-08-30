@@ -759,6 +759,26 @@ class TestCrossoverScan:
         assert resp.status_code == 401
 
 
+    def test_scan_rate_limit_blocks_after_cap_and_is_per_user(self, client, owner, other_user, monkeypatch):
+        """The scan is a whole-market pandas computation over user-supplied
+        parameters, so it's rate limited per user (CLAUDE.md checklist #12).
+        Cap lowered here so the test doesn't have to run 30 real scans."""
+        from app.api import crossover as crossover_module
+
+        monkeypatch.setattr(crossover_module.scan_limiter, "max_requests", 2)
+        body = {"fast": 9, "slow": 21, "ma_type": "ema", "direction": "any"}
+
+        headers = _auth(owner)
+        for _ in range(2):
+            assert client.post("/api/scans/crossover", json=body, headers=headers).status_code == 200
+        blocked = client.post("/api/scans/crossover", json=body, headers=headers)
+        assert blocked.status_code == 429
+        assert "scan rate limit" in blocked.json()["detail"]
+
+        # A different user has their own, untouched budget.
+        assert client.post("/api/scans/crossover", json=body, headers=_auth(other_user)).status_code == 200
+
+
 class TestZoneClassifier:
     # Note: the zone router requires auth (same `Depends(get_current_user)`
     # pattern as every other router -- see app/api/crossover.py and this
@@ -827,6 +847,22 @@ class TestZoneClassifier:
         zone_order = {"A": 0, "B": 1, "C": 2, "D": 3, "Unclassified": 4}
         zones_seen = [zone_order[m["zone"]] for m in matches]
         assert zones_seen == sorted(zones_seen)
+
+    def test_scan_rate_limit_blocks_after_cap_and_is_per_user(self, client, owner, other_user, monkeypatch):
+        """Same expensive-endpoint reasoning as the crossover scan: a
+        parameter sweep is both CPU cost and lru_cache pressure."""
+        from app.api import zone as zone_module
+
+        monkeypatch.setattr(zone_module.scan_limiter, "max_requests", 2)
+
+        headers = _auth(owner)
+        for _ in range(2):
+            assert client.get("/api/zone/scan", headers=headers).status_code == 200
+        blocked = client.get("/api/zone/scan", headers=headers)
+        assert blocked.status_code == 429
+        assert "scan rate limit" in blocked.json()["detail"]
+
+        assert client.get("/api/zone/scan", headers=_auth(other_user)).status_code == 200
 
     def test_requires_auth(self, client):
         resp = client.get("/api/zone/scan")

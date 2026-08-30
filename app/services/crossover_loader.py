@@ -74,7 +74,13 @@ def load_wide(cutoff: date) -> pd.DataFrame:
     return wide.ffill(limit=STALE_TOLERANCE_DAYS)
 
 
-@lru_cache(maxsize=4)
+# maxsize=1, not more: each entry is the whole active market pivoted to
+# bars x instruments, so this cache is the app's single largest memory
+# consumer and it lives in every gunicorn worker. `as_of` is the same for
+# all users on a given trading day, so one entry still serves the common
+# case (everyone on default params); a parameter sweep now costs a re-query
+# instead of pinning several hundred MB on a 512MB instance.
+@lru_cache(maxsize=1)
 def _load_wide_cached(n_bars: int, as_of: date) -> pd.DataFrame:
     cutoff, _ = resolve_window(n_bars)
     return load_wide(cutoff)

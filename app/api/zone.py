@@ -10,11 +10,27 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models import User, Watchlist, WatchlistItem
+from app.rate_limit import RateLimiter
 from app.schemas.zone import SkippedOut, ZoneOut, ZoneParamsOut, ZoneScanResponse
 from app.services.zone_classifier import ZoneParams
 from app.services.zone_loader import ZoneResult, get_zone_for_instrument, run_zone_scan
 
 router = APIRouter(prefix="/api/zone", tags=["zone"], dependencies=[Depends(get_current_user)])
+
+# Both scan endpoints run a whole-market pandas computation over
+# user-supplied parameters, so they're "expensive endpoints" under
+# CLAUDE.md's security checklist (#12). Beyond raw CPU, every distinct
+# parameter tuple is a fresh cache key in the loaders' lru_caches -- an
+# unlimited sweep both defeats the cache and drives resident memory up, so
+# the cap protects memory as much as CPU. 30/hour per user is far above
+# real interactive use: the scans are button-triggered in CustomScanPage,
+# not re-run as the user types.
+scan_limiter = RateLimiter(
+    key_prefix="scan:user",
+    max_requests=30,
+    window_seconds=3600,
+    message="scan rate limit reached (30/hour) -- results are cached per trading day, so re-running the same scan is free",
+)
 
 
 def _watchlist_instrument_ids(
@@ -92,7 +108,9 @@ def scan_zones(
     db: Session = Depends(get_db),
     params: ZoneParams = Depends(_params_from_query),
     instrument_ids: frozenset[int] | None = Depends(_watchlist_instrument_ids),
+    current_user: User = Depends(get_current_user),
 ) -> ZoneScanResponse:
+    scan_limiter.check(str(current_user.id))
     result = run_zone_scan(db, params, instrument_ids)
     return ZoneScanResponse(
         as_of=result.as_of.isoformat(),

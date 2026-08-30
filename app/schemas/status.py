@@ -19,6 +19,7 @@ class JobRunOut(BaseModel):
     finished_at: datetime | None
     duration_seconds: float | None
     rows_processed: int | None
+    error_message: str | None
 
 
 class StatusDetailOut(StatusOut):

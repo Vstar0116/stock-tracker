@@ -105,6 +105,7 @@ def get_status_detail(db: Session = Depends(get_db)) -> StatusDetailOut:
                 finished_at=r.finished_at,
                 duration_seconds=(r.finished_at - r.started_at).total_seconds() if r.finished_at else None,
                 rows_processed=r.rows_processed,
+                error_message=r.error_message,
             )
             for r in recent_runs
         ],

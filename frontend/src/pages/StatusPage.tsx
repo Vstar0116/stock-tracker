@@ -133,7 +133,7 @@ export function StatusPage() {
             <tr key={i}>
               <td>{r.job_name}</td>
               <td>
-                <span className="tag" style={{ background: r.status === 'success' ? 'var(--color-pos-bg)' : r.status === 'failed' ? 'var(--color-neg-bg)' : 'var(--color-neutral-100)', color: r.status === 'success' ? 'var(--color-pos-text)' : r.status === 'failed' ? 'var(--color-neg-text)' : 'var(--color-neutral-800)' }}>
+                <span className="tag" style={{ background: r.status === 'success' ? 'var(--color-pos-bg)' : r.status === 'failed' ? 'var(--color-neg-bg)' : 'var(--color-neutral-100)', color: r.status === 'success' ? 'var(--color-pos-text)' : r.status === 'failed' ? 'var(--color-neg-text)' : 'var(--color-neutral-800)' }} title={r.error_message ?? undefined}>
                   {r.status}
                 </span>
               </td>

@@ -174,6 +174,7 @@ export interface JobRunOut {
   finished_at: string | null
   duration_seconds: number | null
   rows_processed: number | null
+  error_message: string | null
 }
 
 export interface StatusDetailOut extends StatusOut {

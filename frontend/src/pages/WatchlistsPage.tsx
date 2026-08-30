@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { downloadCsv } from '../lib/csv'
 import { changeVisual, ChangeGlyph, fmtPct, fmtPrice, trendVisual } from '../lib/format'
 import { usePageHeader } from '../lib/pageHeader'
 import { useToast } from '../lib/toast'
@@ -120,6 +121,19 @@ export function WatchlistsPage() {
 
   const rows = view?.items ?? []
 
+  function exportRowsCsv() {
+    if (!active || rows.length === 0) return
+    const headers = ['Symbol', 'Company', 'Sector', 'Price', 'Day change %', 'vs SMA 50 %', 'vs SMA 200 %', 'Trend']
+    const csvRows = rows.map((row) => {
+      const sma50 = row.indicators?.sma_50 ?? null
+      const sma200 = row.indicators?.sma_200 ?? null
+      const dist50 = row.close !== null && sma50 ? ((row.close - sma50) / sma50) * 100 : null
+      const dist200 = row.close !== null && sma200 ? ((row.close - sma200) / sma200) * 100 : null
+      return [row.symbol, row.company_name, row.sector, row.close, row.day_change_pct, dist50, dist200, row.trend_state]
+    })
+    downloadCsv(`${active.name.replace(/[^a-z0-9-]+/gi, '_')}-${new Date().toISOString().slice(0, 10)}.csv`, headers, csvRows)
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
@@ -187,7 +201,13 @@ export function WatchlistsPage() {
               </button>
             </div>
           ) : (
-            <table className="table">
+            <>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+                <button type="button" className="btn btn-ghost" style={{ fontSize: 12.5, padding: 0 }} onClick={exportRowsCsv}>
+                  Export CSV
+                </button>
+              </div>
+              <table className="table">
               <thead>
                 <tr>
                   <th>Symbol</th><th>Sector</th><th style={{ textAlign: 'right' }}>Price</th><th style={{ textAlign: 'right' }}>Day change</th>
@@ -233,7 +253,8 @@ export function WatchlistsPage() {
                   )
                 })}
               </tbody>
-            </table>
+              </table>
+            </>
           )}
         </>
       )}

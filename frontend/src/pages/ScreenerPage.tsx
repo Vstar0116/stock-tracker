@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { RuleGroup } from '../components/RuleGroup'
 import { apiFetch, ApiError } from '../lib/api'
+import { downloadCsv } from '../lib/csv'
 import { changeVisual, ChangeGlyph, fmtPct, fmtPrice } from '../lib/format'
 import { usePageHeader } from '../lib/pageHeader'
 import { applyRuleAction, collectFields, FIELD_LABELS, screenRuleToUiTree, uiTreeToScreenRule } from '../lib/ruleTree'
@@ -129,6 +130,22 @@ export function ScreenerPage() {
     }
   }
 
+  function exportResultsCsv() {
+    if (!results || results.length === 0) return
+    const headers = ['Symbol', 'Sector', 'Price', 'Day change %', ...extraFields.map((f) => FIELD_LABELS[f] ?? f)]
+    const rows = results.map((m) => [
+      m.symbol,
+      m.sector,
+      m.close,
+      m.day_change_pct,
+      ...extraFields.map((f) => {
+        const v = m.values[f]
+        return typeof v === 'number' ? v : v ?? null
+      }),
+    ])
+    downloadCsv(`${(name.trim() || 'screen').replace(/[^a-z0-9-]+/gi, '_')}-${new Date().toISOString().slice(0, 10)}.csv`, headers, rows)
+  }
+
   async function addToWatchlist(instrumentId: number, symbol: string, watchlistId: number) {
     const wl = watchlists.find((w) => w.id === watchlistId)
     try {
@@ -187,17 +204,24 @@ export function ScreenerPage() {
         <RuleGroup group={root} path={[]} onMutate={mutate} depth={0} />
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 12 }}>
         <h5 style={{ margin: 0 }}>Preview results</h5>
-        <span style={{ fontSize: 12.5, color: previewError ? 'var(--color-neg-text)' : 'var(--color-neutral-600)' }}>
-          {previewLoading
-            ? 'evaluating…'
-            : previewError
-              ? `couldn't check matches: ${previewError}`
-              : results
-                ? `${results.length} matches, live as you edit the rule`
-                : 'add a condition to see matches'}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 12.5, color: previewError ? 'var(--color-neg-text)' : 'var(--color-neutral-600)' }}>
+            {previewLoading
+              ? 'evaluating…'
+              : previewError
+                ? `couldn't check matches: ${previewError}`
+                : results
+                  ? `${results.length} matches, live as you edit the rule`
+                  : 'add a condition to see matches'}
+          </span>
+          {!previewError && results && results.length > 0 && (
+            <button type="button" className="btn btn-ghost" style={{ fontSize: 12.5, padding: 0, whiteSpace: 'nowrap' }} onClick={exportResultsCsv}>
+              Export CSV
+            </button>
+          )}
+        </div>
       </div>
 
       {!previewError && results && results.length > 0 && (

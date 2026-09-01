@@ -3,7 +3,7 @@ market (Task 5). Additive to the existing indicator/screener/crossover
 features -- see docs/superpowers/specs/2026-08-25-bs-v4-zone-classifier-design.md.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -11,9 +11,17 @@ from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models import User, Watchlist, WatchlistItem
 from app.rate_limit import RateLimiter
-from app.schemas.zone import SkippedOut, ZoneOut, ZoneParamsOut, ZoneScanResponse
+from app.schemas.zone import SkippedOut, ZoneOut, ZoneParamsOut, ZoneProtocolParseResponse, ZoneScanResponse
+from app.services.protocol_parser import PdfReadError, extract_pdf_text, parse_protocol_text
 from app.services.zone_classifier import ZoneParams
 from app.services.zone_loader import ZoneResult, get_zone_for_instrument, run_zone_scan
+
+# Applies to the protocol-PDF upload below: a private tool used by 4-5
+# people, so a small doc is the only legitimate input. Keeps a malformed or
+# adversarial upload's cost (memory, pypdf parse time) bounded regardless of
+# what the client claims about the file.
+MAX_PROTOCOL_PDF_BYTES = 5 * 1024 * 1024
+MAX_PROTOCOL_PDF_PAGES = 15
 
 router = APIRouter(prefix="/api/zone", tags=["zone"], dependencies=[Depends(get_current_user)])
 
@@ -121,6 +129,31 @@ def scan_zones(
         cached=result.cached,
         elapsed_ms=result.elapsed_ms,
     )
+
+
+@router.post("/parse-protocol", response_model=ZoneProtocolParseResponse)
+def parse_protocol(file: UploadFile = File(...), current_user: User = Depends(get_current_user)) -> ZoneProtocolParseResponse:
+    """Reads Zone Classifier thresholds out of an uploaded protocol PDF, so
+    the advanced-parameters form can be filled from a document instead of
+    typed in by hand. Never writes the upload to disk -- read fully into
+    memory, parsed, discarded; nothing here trusts the client filename or
+    touches a web-served path (CLAUDE.md checklist #8)."""
+    if file.content_type != "application/pdf":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "file must be a PDF")
+
+    data = file.file.read(MAX_PROTOCOL_PDF_BYTES + 1)
+    if len(data) > MAX_PROTOCOL_PDF_BYTES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "PDF too large (max 5MB)")
+    if not data.startswith(b"%PDF-"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "file is not a valid PDF")
+
+    try:
+        text = extract_pdf_text(data, max_pages=MAX_PROTOCOL_PDF_PAGES)
+    except PdfReadError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "could not read PDF -- it may be corrupted or encrypted")
+
+    found, not_found = parse_protocol_text(text)
+    return ZoneProtocolParseResponse(found=found, not_found=not_found)
 
 
 @router.get("/{instrument_id}", response_model=ZoneOut)

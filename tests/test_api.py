@@ -867,3 +867,64 @@ class TestZoneClassifier:
     def test_requires_auth(self, client):
         resp = client.get("/api/zone/scan")
         assert resp.status_code == 401
+
+    def test_parse_protocol_rejects_non_pdf_content_type(self, client, owner):
+        resp = client.post(
+            "/api/zone/parse-protocol", headers=_auth(owner),
+            files={"file": ("notes.txt", b"hello", "text/plain")},
+        )
+        assert resp.status_code == 400
+        assert "PDF" in resp.json()["detail"]
+
+    def test_parse_protocol_rejects_bad_magic_bytes(self, client, owner):
+        resp = client.post(
+            "/api/zone/parse-protocol", headers=_auth(owner),
+            files={"file": ("fake.pdf", b"not a real pdf", "application/pdf")},
+        )
+        assert resp.status_code == 400
+        assert "not a valid PDF" in resp.json()["detail"]
+
+    def test_parse_protocol_rejects_oversized_file(self, client, owner):
+        oversized = b"%PDF-1.4" + b"0" * (5 * 1024 * 1024)
+        resp = client.post(
+            "/api/zone/parse-protocol", headers=_auth(owner),
+            files={"file": ("big.pdf", oversized, "application/pdf")},
+        )
+        assert resp.status_code == 400
+        assert "too large" in resp.json()["detail"]
+
+    def test_parse_protocol_extracts_thresholds_from_pdf_text(self, client, owner, monkeypatch):
+        from app.api import zone as zone_module
+
+        monkeypatch.setattr(
+            zone_module, "extract_pdf_text",
+            lambda data, max_pages=15: "200-Day Simple Moving Average, RSI < 55, RSI between 56 and 65",
+        )
+        resp = client.post(
+            "/api/zone/parse-protocol", headers=_auth(owner),
+            files={"file": ("protocol.pdf", b"%PDF-1.4\nfake", "application/pdf")},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["found"]["macro_sma_period"] == 200
+        assert body["found"]["rsi_zone_a_max"] == 55
+        assert "atr_period" in body["not_found"]
+
+    def test_parse_protocol_unreadable_pdf_400s_not_500s(self, client, owner, monkeypatch):
+        from app.api import zone as zone_module
+        from app.services.protocol_parser import PdfReadError
+
+        def _raise(data, max_pages=15):
+            raise PdfReadError("bad xref table")
+
+        monkeypatch.setattr(zone_module, "extract_pdf_text", _raise)
+        resp = client.post(
+            "/api/zone/parse-protocol", headers=_auth(owner),
+            files={"file": ("protocol.pdf", b"%PDF-1.4\nfake", "application/pdf")},
+        )
+        assert resp.status_code == 400
+        assert "could not read PDF" in resp.json()["detail"]
+
+    def test_parse_protocol_requires_auth(self, client):
+        resp = client.post("/api/zone/parse-protocol", files={"file": ("protocol.pdf", b"%PDF-1.4", "application/pdf")})
+        assert resp.status_code == 401

@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiFetch, ApiError } from '../lib/api'
 import { fmtPrice } from '../lib/format'
 import { usePageHeader } from '../lib/pageHeader'
 import { useFetch } from '../lib/useFetch'
-import type { Page, ScanDirection, ScanResponse, WatchlistOut, Zone, ZoneScanResponse } from '../lib/types'
+import type { Page, ScanDirection, ScanResponse, WatchlistOut, Zone, ZoneProtocolParseResponse, ZoneScanResponse } from '../lib/types'
 
 const ZONE_COLORS: Record<Zone, string> = {
   A: 'var(--color-pos-text)',
@@ -218,6 +218,10 @@ const ZONE_PARAM_GROUPS: { title: string; fields: { key: ZoneParamKey; label: st
   },
 ]
 
+const ZONE_FIELD_LABELS: Record<ZoneParamKey, string> = Object.fromEntries(
+  ZONE_PARAM_GROUPS.flatMap((g) => g.fields).map((f) => [f.key, f.label])
+) as Record<ZoneParamKey, string>
+
 function ZoneScanSection({
   params, onParamsChange, watchlists, watchlistId, onWatchlistIdChange, result, loading, error, onRun,
 }: {
@@ -232,9 +236,45 @@ function ZoneScanSection({
   onRun: () => void
 }) {
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [pdfBusy, setPdfBusy] = useState(false)
+  const [pdfMessage, setPdfMessage] = useState<string | null>(null)
+  const [pdfError, setPdfError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   function setField(key: ZoneParamKey, value: string) {
     onParamsChange({ ...params, [key]: value })
+  }
+
+  function fieldLabel(key: string): string {
+    return ZONE_FIELD_LABELS[key as ZoneParamKey] ?? key
+  }
+
+  async function uploadProtocolPdf(file: File) {
+    setPdfBusy(true)
+    setPdfError(null)
+    setPdfMessage(null)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await apiFetch<ZoneProtocolParseResponse>('/api/zone/parse-protocol', { method: 'POST', body: formData })
+      const foundEntries = Object.entries(res.found) as [ZoneParamKey, number][]
+      if (foundEntries.length > 0) {
+        const next = { ...params }
+        for (const [key, value] of foundEntries) next[key] = String(value)
+        onParamsChange(next)
+        setShowAdvanced(true)
+      }
+      setPdfMessage(
+        foundEntries.length === 0
+          ? 'No recognizable parameters found in this PDF -- nothing changed.'
+          : `Applied from PDF: ${foundEntries.map(([key]) => fieldLabel(key)).join(', ')}.`
+            + (res.not_found.length > 0 ? ` Not found, left unchanged: ${res.not_found.map(fieldLabel).join(', ')}.` : '')
+      )
+    } catch (err) {
+      setPdfError(err instanceof ApiError ? err.message : 'could not read PDF')
+    } finally {
+      setPdfBusy(false)
+    }
   }
 
   return (
@@ -257,10 +297,26 @@ function ZoneScanSection({
           </select>
         </div>
         <span className="text-muted" style={{ fontSize: 12.5 }}>Classifies every stock into Zone A–D by RSI/trend position.</span>
+        <input
+          ref={fileInputRef} type="file" accept="application/pdf" style={{ display: 'none' }}
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            e.target.value = ''
+            if (file) uploadProtocolPdf(file)
+          }}
+        />
+        <button
+          type="button" className="btn btn-secondary" style={{ fontSize: 12.5 }}
+          onClick={() => fileInputRef.current?.click()} disabled={pdfBusy}
+        >
+          {pdfBusy ? 'Reading PDF…' : 'Upload protocol PDF'}
+        </button>
         <button type="button" className="btn btn-ghost" style={{ fontSize: 12.5, padding: 0, marginLeft: 'auto' }} onClick={() => setShowAdvanced((s) => !s)}>
           {showAdvanced ? 'Hide' : 'Show'} advanced parameters
         </button>
       </div>
+      {pdfError && <p style={{ fontSize: 13, color: 'var(--color-neg-text)', marginBottom: 14 }}>{pdfError}</p>}
+      {pdfMessage && <p style={{ fontSize: 12.5, color: 'var(--color-neutral-600)', marginBottom: 14 }}>{pdfMessage}</p>}
 
       {showAdvanced && (
         <div className="card blueprint" style={{ padding: 16, marginBottom: 18 }}>

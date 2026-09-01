@@ -275,3 +275,8 @@ export interface ZoneScanResponse {
   cached: boolean
   elapsed_ms: number
 }
+
+export interface ZoneProtocolParseResponse {
+  found: Record<string, number>
+  not_found: string[]
+}

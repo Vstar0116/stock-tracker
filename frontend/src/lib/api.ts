@@ -32,7 +32,12 @@ export class ApiError extends Error {
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set('Accept', 'application/json')
-  if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+  // FormData bodies (file uploads) must NOT get a manual Content-Type --
+  // fetch sets multipart/form-data with the correct boundary itself, and
+  // overriding it here would drop the boundary and break parsing server-side.
+  if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
   if (token) headers.set('Authorization', `Bearer ${token}`)
 
   const res = await fetch(`${API_BASE_URL}${path}`, { ...init, headers })

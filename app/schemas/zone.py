@@ -48,3 +48,8 @@ class ZoneScanResponse(BaseModel):
     evaluated: int
     cached: bool
     elapsed_ms: int
+
+
+class ZoneProtocolParseResponse(BaseModel):
+    found: dict[str, float]
+    not_found: list[str]

@@ -1,13 +1,13 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.api.deps import Pagination, get_current_user, pagination
 from app.db.session import get_db
 from app.models import Alert, Instrument, Screen, User
-from app.schemas.alert import AlertOut
+from app.schemas.alert import AlertOut, AlertsMarkSeenRequest, AlertsMarkSeenResponse
 from app.schemas.common import Page
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
@@ -84,3 +84,24 @@ def mark_seen(
     db.commit()
     db.refresh(alert)
     return _to_out(alert, screen_name, symbol, exchange)
+
+
+@router.post("/seen", response_model=AlertsMarkSeenResponse)
+def mark_many_seen(
+    payload: AlertsMarkSeenRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+) -> AlertsMarkSeenResponse:
+    """One request for the "mark all as seen" bulk action, instead of the
+    frontend firing one POST per alert. Ownership is still a WHERE-clause
+    condition -- ids belonging to someone else are silently excluded from the
+    update rather than erroring, same as the rest of this API's 404-not-leak
+    pattern, just expressed as "not updated" instead of "not found" since this
+    is a batch of possibly-mixed ids."""
+    if not payload.ids:
+        return AlertsMarkSeenResponse(updated=0)
+    result = db.execute(
+        update(Alert)
+        .where(Alert.id.in_(payload.ids), Alert.screen_id.in_(select(Screen.id).where(Screen.user_id == current_user.id)))
+        .values(seen=True)
+    )
+    db.commit()
+    return AlertsMarkSeenResponse(updated=result.rowcount)

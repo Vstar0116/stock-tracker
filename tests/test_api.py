@@ -402,6 +402,24 @@ class TestAlerts:
         assert mark.status_code == 200
         assert mark.json()["seen"] is True
 
+    def test_bulk_mark_seen_scoped_to_owner(self, client, owner, other_user, priced_instrument):
+        headers = _auth(owner)
+        rule = {"type": "compare", "op": "gt", "field": "close", "value": 100}
+        screen_id = client.post("/api/screens", json={"name": "Bulk Alert Source", "definition": rule}, headers=headers).json()["id"]
+        client.post(f"/api/screens/{screen_id}/run", headers=headers)
+        alert = client.get("/api/alerts", headers=headers).json()["items"][0]
+
+        other_headers = _auth(other_user)
+        other_result = client.post("/api/alerts/seen", json={"ids": [alert["id"]]}, headers=other_headers)
+        assert other_result.status_code == 200
+        assert other_result.json()["updated"] == 0
+        assert client.get("/api/alerts", headers=headers).json()["items"][0]["seen"] is False
+
+        result = client.post("/api/alerts/seen", json={"ids": [alert["id"], 999999]}, headers=headers)
+        assert result.status_code == 200
+        assert result.json()["updated"] == 1
+        assert client.get("/api/alerts", headers=headers).json()["items"][0]["seen"] is True
+
 
 class TestStatus:
     def test_returns_freshness_info(self, client, owner):

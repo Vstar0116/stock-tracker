@@ -14,3 +14,11 @@ class AlertOut(BaseModel):
     triggered_at: datetime
     snapshot: dict
     seen: bool
+
+
+class AlertsMarkSeenRequest(BaseModel):
+    ids: list[int]
+
+
+class AlertsMarkSeenResponse(BaseModel):
+    updated: int

@@ -21,6 +21,9 @@ export function usePageHeader(title: string, subtitle?: string | null) {
   const { setHeader } = ctx
   useEffect(() => {
     setHeader({ title, subtitle })
+    // Six routes plus deep-linkable stock pages all shared one static tab
+    // title, which makes browser history and pinned tabs useless.
+    document.title = title ? `${title} · NSE Tracker` : 'NSE Tracker'
   }, [title, subtitle, setHeader])
 }
 

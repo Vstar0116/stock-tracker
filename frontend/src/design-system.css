@@ -1,11 +1,50 @@
 /* Ported from the Claude Design "Industry" system used by the imported
    NSE Tracker canvas (project 51c10eba-dadf-4314-b887-13e604b527ba). Source
-   of truth for look: retune tokens here, not per-component. Barlow/Barlow
-   Condensed load via <link> in index.html, not @import here -- @import
-   must be a stylesheet's first rule, which this file isn't once Vite
-   concatenates it after Tailwind. */
+   of truth for look: retune tokens here, not per-component. */
+
+/* Self-hosted (latin subset only -- UI text is English), not Google Fonts:
+   a <link> to fonts.googleapis.com is a render-blocking third-party request
+   on every page view, and it hands Google a request log of an internal
+   tool's traffic. */
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/barlow-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/barlow-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/barlow-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/barlow-condensed-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/barlow-condensed-600.woff2') format('woff2');
+}
 
 :root {
+  color-scheme: light dark;
+
   --color-bg: #f2f2f3;
   --color-surface: #e9e9ea;
   --color-text: #1d1f20;
@@ -18,7 +57,9 @@
   --color-neutral-300: #d4d4d7;
   --color-neutral-400: #b7b7ba;
   --color-neutral-500: #98989b;
-  --color-neutral-600: #7a7a7d;
+  /* 600 is the workhorse secondary-text color (~28 usages). #7a7a7d only
+     reached 3.82:1 on --color-bg; #6b6b6e clears the 4.5:1 body minimum. */
+  --color-neutral-600: #6b6b6e;
   --color-neutral-700: #5d5d60;
   --color-neutral-800: #424244;
   --color-neutral-900: #2b2b2d;
@@ -33,6 +74,16 @@
   --color-accent-800: #2c455d;
   --color-accent-900: #1d2d3d;
 
+  /* Fixed brand blues: the buttons/badges/toast below pair a solid fill with
+     hardcoded white text, so their background must stay legible regardless
+     of theme. Everything else references --color-accent-N directly and is
+     free to invert under the dark media query below. */
+  --color-brand: #416180;
+  --color-brand-hover: #2c455d;
+  --color-brand-active: #1d2d3d;
+  --color-brand-mid: #597ea3;
+  --toast-bg: var(--color-brand-active);
+
   --font-heading: "Barlow Condensed", system-ui, sans-serif;
   --font-heading-weight: 600;
   --font-body: "Barlow", system-ui, sans-serif;
@@ -44,8 +95,17 @@
   --space-6: 20.4px;
   --space-8: 27.2px;
 
-  --radius-md: 4px;
-  --radius-lg: 7px;
+  /* Motion: state feedback only, never choreography. Users are mid-task. */
+  --dur-fast: 120ms;
+  --dur: 180ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Semantic z-index scale -- every stacking value in the app names one of
+     these, so a new overlay doesn't have to guess a number. */
+  --z-dropdown: 5;
+  --z-modal-backdrop: 30;
+  --z-modal: 40;
+  --z-toast: 50;
 
   --shadow-sm: 0 1px 2px color-mix(in srgb, #2b2b2d 14%, transparent);
   --shadow-md: 0 3px 10px color-mix(in srgb, #2b2b2d 16%, transparent);
@@ -82,7 +142,9 @@ h4 { font-size: 20px; }
 h5 { font-size: 16px; }
 a { color: var(--color-accent-700); text-underline-offset: 3px; }
 a:hover { color: var(--color-accent-900); }
-.text-muted { color: color-mix(in srgb, var(--color-text) 55%, transparent); }
+/* 65%, not 55% -- 55% landed at 3.64:1 on --color-bg, below the 4.5:1 body
+   minimum. Same reason the table header below moved from 60% to 65%. */
+.text-muted { color: color-mix(in srgb, var(--color-text) 65%, transparent); }
 :focus { outline: none; }
 :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 
@@ -103,14 +165,21 @@ a:hover { color: var(--color-accent-900); }
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   cursor: pointer; text-decoration: none;
   font-family: var(--font-heading); font-weight: var(--font-heading-weight);
-  font-size: 14px; line-height: 1.2; color: var(--color-text);
+  font-size: 14px; line-height: 1.2; color: var(--color-text); white-space: nowrap;
   background: transparent; border: 1px solid var(--color-divider);
   padding: var(--space-2) calc(var(--space-3) * 1.2);
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
+.btn:active:not(:disabled) { transform: translateY(1px); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.btn-primary { background: var(--color-accent); color: #fff; border-color: var(--color-accent); }
-.btn-primary:hover { background: var(--color-accent-600); }
-.btn-primary:active { background: var(--color-accent-700); }
+/* --color-brand, not --color-accent-700: white on #5980a6 is 4.15:1, under
+   the 4.5:1 floor for this 14px label. #416180 gives 6.47:1 and keeps the
+   slate-blue read. Using the fixed brand token (not the ramp step) also means
+   this button looks identical in dark mode instead of inverting to a pale
+   blue that white text couldn't sit on. */
+.btn-primary { background: var(--color-brand); color: #fff; border-color: var(--color-brand); }
+.btn-primary:hover { background: var(--color-brand-hover); border-color: var(--color-brand-hover); }
+.btn-primary:active { background: var(--color-brand-active); border-color: var(--color-brand-active); }
 .btn-secondary { border-color: var(--color-divider); }
 .btn-secondary:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
 .btn-ghost { color: var(--color-accent-700); border-color: transparent; padding-inline: var(--space-1); }
@@ -119,11 +188,17 @@ a:hover { color: var(--color-accent-900); }
 .btn-block { width: 100%; margin-top: var(--space-2); }
 
 /* — forms — */
-.field > label { display: block; font-size: 12px; margin-bottom: 5px; color: color-mix(in srgb, var(--color-text) 70%, transparent); }
+/* Two shapes are supported. Either `.field` is a wrapper holding a <label
+   for=...> (LoginPage), or `.field` IS the <label> and holds a .field-label
+   span -- the wrapping form associates control and text with no id plumbing,
+   which is why most pages use it. */
+.field > label, .field > .field-label { display: block; font-size: 12px; margin-bottom: 5px; color: color-mix(in srgb, var(--color-text) 70%, transparent); }
+label.field { display: block; cursor: pointer; }
 .input {
   width: 100%; min-height: 36px; padding: 6px 10px; font: inherit; font-size: 14px;
   color: var(--color-text); caret-color: var(--color-accent);
   background: var(--color-surface); border: 1px solid var(--color-divider);
+  transition: border-color var(--dur-fast) var(--ease-out);
 }
 .input:hover { border-color: color-mix(in srgb, var(--color-text) 45%, transparent); }
 .input:focus-visible { border-color: var(--color-accent); outline-offset: 0; }
@@ -136,7 +211,10 @@ select.input {
 
 /* — cards — */
 .card { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); background: transparent; border: 1px solid var(--color-divider); }
-.card-kicker { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent-700); }
+/* Normal-case, not uppercase-tracked: at 10px/0.1em every stat tile and card
+   header read as the same templated label. Weight carries the "kicker" role
+   instead. */
+.card-kicker { font-size: 12px; font-weight: 600; color: var(--color-accent-700); }
 .card-title { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 17px; line-height: 1.2; }
 .card-body { margin: 0; font-size: 13px; opacity: 0.8; flex: 1; }
 
@@ -150,8 +228,173 @@ select.input {
 .table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .table th {
   text-align: left; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
-  color: color-mix(in srgb, var(--color-text) 60%, transparent);
+  color: color-mix(in srgb, var(--color-text) 65%, transparent);
   padding: var(--space-2); border-bottom: 1px solid var(--color-divider);
 }
 .table td { padding: var(--space-2); border-bottom: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); }
+.table tbody tr { transition: background var(--dur-fast) var(--ease-out); }
 .table tbody tr:hover { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
+
+/* Every table needs this wrapper: the widest is 8 columns and the shell has
+   no horizontal scroll of its own, so without it narrow viewports clip. */
+.table-scroll { width: 100%; overflow-x: auto; }
+
+/* Sortable column header. The button carries the click target so the sort is
+   keyboard-reachable; th keeps the styling. */
+.table th.sortable { padding: 0; }
+.table th.sortable > button {
+  display: inline-flex; align-items: center; gap: 4px; width: 100%;
+  font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit;
+  background: none; border: none; cursor: pointer; padding: var(--space-2);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.table th.sortable > button:hover { color: var(--color-text); }
+.table th.sortable.numeric > button { justify-content: flex-end; }
+.table th.sortable .sort-arrow { opacity: 0.35; }
+.table th.sortable[aria-sort] .sort-arrow { opacity: 1; }
+
+/* — section label: one class for the uppercase/tracked headings that used to
+     be re-implemented inline on Status, Alerts and Stock Detail — */
+.section-label {
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--color-neutral-600); margin-bottom: var(--space-2);
+}
+
+/* — app shell: lives here rather than inline so it can hold breakpoints — */
+.app-shell { display: flex; height: 100dvh; background: var(--color-bg); color: var(--color-text); font-family: var(--font-body); font-size: 14px; }
+.app-sidebar { width: 220px; flex: none; border-right: 1px solid var(--color-divider); display: flex; flex-direction: column; padding: 20px 14px; background: var(--color-bg); }
+.app-body { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.app-header { flex: none; display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-4) 28px; border-bottom: 1px solid var(--color-divider); }
+.app-main { flex: 1; overflow-y: auto; padding: 24px 28px 60px; }
+.app-nav-toggle { display: none; }
+.app-scrim { display: none; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+/* — stock detail: minmax(0,…) stops the chart column blowing out the grid — */
+.detail-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+
+/* — toast: rises in, so it registers in peripheral vision — */
+.toast { animation: toast-in var(--dur) var(--ease-out); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(4px); } }
+
+/* — panel reveal, used by the tab bodies and the advanced-params drawer — */
+.reveal { animation: reveal var(--dur) var(--ease-out); }
+@keyframes reveal { from { opacity: 0; transform: translateY(-3px); } }
+
+/* — loading skeletons, in place of a bare "Loading…" — */
+.skeleton { background: color-mix(in srgb, var(--color-text) 9%, transparent); animation: skeleton-pulse 1.4s ease-in-out infinite; }
+@keyframes skeleton-pulse { 50% { opacity: 0.45; } }
+
+@media (max-width: 900px) {
+  .detail-grid { grid-template-columns: minmax(0, 1fr); }
+  .app-sidebar {
+    position: fixed; inset: 0 auto 0 0; z-index: var(--z-modal); width: 244px;
+    transform: translateX(-100%); transition: transform var(--dur) var(--ease-out);
+    box-shadow: var(--shadow-lg);
+  }
+  .app-shell.nav-open .app-sidebar { transform: translateX(0); }
+  .app-shell.nav-open .app-scrim { display: block; position: fixed; inset: 0; z-index: var(--z-modal-backdrop); background: color-mix(in srgb, #1d1f20 35%, transparent); }
+  .app-nav-toggle { display: inline-flex; }
+  .app-header { padding: var(--space-3) var(--space-4); }
+  .app-main { padding: var(--space-4) var(--space-4) 48px; }
+  /* Custom Scan's subtitle is a full sentence; at this width it wrapped to
+     four lines and pushed the header to 143px tall. The title carries the
+     page identity on its own. */
+  .page-subtitle { display: none; }
+  .app-header h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+/* The header carries title + freshness + user at 375px, which does not fit.
+   Drop the supporting lines rather than the signals themselves -- the
+   freshness state is the one thing that must survive. */
+@media (max-width: 700px) {
+  .freshness-sub, .user-name { display: none; }
+  .app-header h1 { font-size: 17px; }
+}
+
+/* Coarse pointers need real targets. 26px icon buttons and zero-padding ghost
+   buttons are fine with a mouse and unusable with a thumb. */
+@media (pointer: coarse) {
+  .btn { min-height: 44px; }
+  .btn-icon { width: 44px; height: 44px; }
+  .btn-ghost { min-height: 44px; padding-inline: var(--space-2); }
+  .input { min-height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* — dark mode —
+   Followed automatically from the OS setting (no manual toggle: this is a
+   4-5 user internal tool, and the audience checks markets after close).
+   The neutral and accent ramps both invert end-for-end (N <-> 1000-N, 500
+   self-paired): every existing rule that reads --color-neutral-N or
+   --color-accent-N for a self-contained pair (a tag's bg+text, a badge's
+   bg+text, a tinted panel) keeps its internal contrast automatically and
+   needs no per-selector override below. The four solid brand buttons/badges
+   that pair a fixed background with hardcoded white text were pulled onto
+   the theme-invariant --color-brand-* tokens above for exactly this reason:
+   inverting accent-700 would otherwise turn .btn-primary into white text on
+   a pale blue. Verified against WCAG AA (4.5:1 text, 3:1 non-text) with the
+   same ratio script used for the original light-mode contrast fixes. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #1a1b1d;
+    --color-surface: #242628;
+    --color-text: #e9e9ea;
+    --color-divider: color-mix(in srgb, #e9e9ea 16%, transparent);
+
+    --color-neutral-100: #2b2b2d;
+    --color-neutral-200: #424244;
+    --color-neutral-300: #5d5d60;
+    --color-neutral-400: #6b6b6e;
+    --color-neutral-500: #98989b;
+    --color-neutral-600: #b7b7ba;
+    --color-neutral-700: #d4d4d7;
+    --color-neutral-800: #e7e7ea;
+    --color-neutral-900: #f5f5f8;
+
+    --color-accent-100: #1d2d3d;
+    --color-accent-200: #2c455d;
+    --color-accent-300: #416180;
+    --color-accent-400: #597ea3;
+    --color-accent-500: #749dc4;
+    --color-accent-600: #94bce3;
+    --color-accent-700: #b5d9fd;
+    --color-accent-800: #d6ebff;
+    --color-accent-900: #eef6ff;
+
+    /* Toast gets the lighter of the two invariant navy steps rather than
+       --color-brand-active: on a near-black page the two are only 1.2:1
+       apart and the toast stops reading as an elevated surface. */
+    --toast-bg: var(--color-brand-hover);
+
+    /* Same L delta each direction as the light triads (text far from bg,
+       border in between); C and H unchanged so the hue stays recognizable. */
+    --color-pos-text: oklch(0.8 0.12 152);
+    --color-pos-bg: oklch(0.22 0.035 152);
+    --color-pos-border: oklch(0.45 0.1 152);
+    --color-neg-text: oklch(0.8 0.15 27);
+    --color-neg-bg: oklch(0.22 0.035 27);
+    --color-neg-border: oklch(0.45 0.12 27);
+    --color-warn-text: oklch(0.8 0.1 75);
+    --color-warn-bg: oklch(0.22 0.06 75);
+    --color-warn-border: oklch(0.45 0.13 75);
+  }
+
+  /* Baked into a data URI, so it can't read a CSS variable -- needs its own
+     dark-mode copy with a light stroke instead. */
+  select.input {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23b7b7ba' stroke-width='1.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  }
+}

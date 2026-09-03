@@ -1,4 +1,16 @@
+import type { CSSProperties, ReactNode } from 'react'
 import type { TrendState } from './types'
+
+/** Every user-facing error message goes through this. role="alert" is the
+ *  point: error text rendered as a plain <p> appears silently to a screen
+ *  reader, so a failed save or scan simply never gets announced. */
+export function ErrorText({ children, style }: { children: ReactNode; style?: CSSProperties }) {
+  return (
+    <p role="alert" style={{ fontSize: 13, color: 'var(--color-neg-text)', margin: '0 0 14px', ...style }}>
+      {children}
+    </p>
+  )
+}
 
 export function indianNum(num: number | null | undefined, decimals = 2): string {
   if (num === null || num === undefined || isNaN(num)) return '—'

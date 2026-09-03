@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { Corners } from '../components/Blueprint'
+import { EmptyState } from '../components/EmptyState'
 import { RuleGroup } from '../components/RuleGroup'
 import { apiFetch, ApiError } from '../lib/api'
 import { downloadCsv } from '../lib/csv'
-import { changeVisual, ChangeGlyph, fmtPct, fmtPrice } from '../lib/format'
+import { changeVisual, ChangeGlyph, ErrorText, fmtPct, fmtPrice } from '../lib/format'
 import { usePageHeader } from '../lib/pageHeader'
+import { SortableTh, useSortableRows } from '../lib/sort'
 import { applyRuleAction, collectFields, FIELD_LABELS, screenRuleToUiTree, uiTreeToScreenRule } from '../lib/ruleTree'
 import type { RuleAction } from '../lib/ruleTree'
 import { useToast } from '../lib/toast'
@@ -48,6 +51,10 @@ export function ScreenerPage() {
 
   const [nlText, setNlText] = useState('')
   const [nlLoading, setNlLoading] = useState(false)
+  // "Generate rule" overwrites whatever the user built by hand, so keep the
+  // previous tree to hand back. One ref is cheaper than a full undo stack.
+  const undoRoot = useRef<UiRuleGroup | null>(null)
+  const [undoAvailable, setUndoAvailable] = useState(false)
 
   const { data: screens, error: screensError, reload: reloadScreens } = useFetch<Page<ScreenOut>>('/api/screens?limit=200')
   const { data: watchlistPage } = useFetch<Page<WatchlistOut>>('/api/watchlists?limit=200')
@@ -55,6 +62,17 @@ export function ScreenerPage() {
 
   const definition = useMemo(() => uiTreeToScreenRule(root), [root])
   const extraFields = useMemo(() => Array.from(collectFields(root)).slice(0, 4), [root])
+
+  // The extra columns are per-rule, so a match's sortable value lives either on
+  // the row itself or in its `values` bag -- hence the lookup rather than a
+  // plain key index.
+  const matchSortValue = useCallback((m: ScreenMatchOut, key: string): unknown => {
+    if (key === 'symbol' || key === 'sector') return m[key]
+    if (key === 'close' || key === 'day_change_pct') return m[key]
+    return m.values[key]
+  }, [])
+  const resultRows = useMemo(() => results ?? [], [results])
+  const { rows: sortedResults, sort, toggle } = useSortableRows(resultRows, matchSortValue)
 
   useEffect(() => {
     if (!definition) {
@@ -84,6 +102,17 @@ export function ScreenerPage() {
   function mutate(path: number[], action: RuleAction, payload?: string) {
     setRoot((r) => applyRuleAction(r, path, action, payload))
     setActiveTemplateId(null)
+    // Once they start editing by hand, restoring the pre-generation tree would
+    // throw that work away -- so the offer expires here.
+    setUndoAvailable(false)
+  }
+
+  function undoGenerate() {
+    if (!undoRoot.current) return
+    setRoot(undoRoot.current)
+    undoRoot.current = null
+    setUndoAvailable(false)
+    toast('Restored your previous rule')
   }
 
   function loadTemplate(tpl: Template) {
@@ -120,8 +149,10 @@ export function ScreenerPage() {
       })
       // Drop the generated rule into the builder for review -- never save or
       // run it automatically, the user still has to check it and hit Save.
+      undoRoot.current = root
       setRoot(screenRuleToUiTree(res.definition))
       setActiveTemplateId(null)
+      setUndoAvailable(true)
       toast('Rule generated — review it below before saving')
     } catch (err) {
       toast(err instanceof ApiError ? err.message : 'failed to generate a rule from that text')
@@ -167,7 +198,7 @@ export function ScreenerPage() {
             onClick={() => loadTemplate(tpl)}
             style={{ textAlign: 'left', maxWidth: 260 }}
           >
-            {tpl.id === activeTemplateId && (<><i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" /></>)}
+            {tpl.id === activeTemplateId && <Corners />}
             <span style={{ display: 'block', fontWeight: 600, whiteSpace: 'nowrap' }}>{tpl.name}</span>
             <span style={{ display: 'block', fontSize: 11.5, fontWeight: 400, opacity: 0.75, marginTop: 2 }}>{tpl.description}</span>
           </button>
@@ -175,31 +206,38 @@ export function ScreenerPage() {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
-        <div className="field" style={{ margin: 0, width: 280 }}>
-          <label>Screen name</label>
+        <label className="field" style={{ margin: 0, width: 280 }}>
+          <span className="field-label">Screen name</span>
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
-        </div>
+        </label>
         <button type="button" className="btn btn-primary blueprint" onClick={saveScreen} disabled={saving} style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
-          <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
+          <Corners />
           Save screen
         </button>
       </div>
 
-      <form onSubmit={generateFromText} style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        <input
-          className="input"
-          value={nlText}
-          onChange={(e) => setNlText(e.target.value)}
-          placeholder="Describe a screen in plain English, e.g. “pharma stocks below their 200 day average with RSI under 40”"
-          style={{ flex: 1 }}
-        />
+      <form onSubmit={generateFromText} style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+        <label className="field" style={{ margin: 0, flex: 1, minWidth: 240 }}>
+          <span className="sr-only">Describe a screen in plain English</span>
+          <input
+            className="input"
+            value={nlText}
+            onChange={(e) => setNlText(e.target.value)}
+            placeholder="Describe a screen in plain English, e.g. “pharma stocks below their 200 day average with RSI under 40”"
+          />
+        </label>
         <button type="submit" className="btn btn-secondary" disabled={nlLoading || !nlText.trim()} style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
           {nlLoading ? 'Generating…' : 'Generate rule'}
         </button>
+        {undoAvailable && (
+          <button type="button" className="btn btn-ghost" onClick={undoGenerate} style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
+            Undo generate
+          </button>
+        )}
       </form>
 
       <div className="card blueprint" style={{ padding: 16, marginBottom: 22 }}>
-        <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
+        <Corners />
         <div className="card-kicker" style={{ marginBottom: 10 }}>Rule builder</div>
         <RuleGroup group={root} path={[]} onMutate={mutate} depth={0} />
       </div>
@@ -225,16 +263,22 @@ export function ScreenerPage() {
       </div>
 
       {!previewError && results && results.length > 0 && (
+        <div className="table-scroll">
         <table className="table">
           <thead>
             <tr>
-              <th>Symbol</th><th>Sector</th><th style={{ textAlign: 'right' }}>Price</th><th style={{ textAlign: 'right' }}>Day change</th>
-              {extraFields.map((f) => <th key={f} style={{ textAlign: 'right' }}>{FIELD_LABELS[f] ?? f}</th>)}
+              <SortableTh label="Symbol" sortKey="symbol" sort={sort} onSort={toggle} />
+              <SortableTh label="Sector" sortKey="sector" sort={sort} onSort={toggle} />
+              <SortableTh label="Price" sortKey="close" sort={sort} onSort={toggle} numeric />
+              <SortableTh label="Day change" sortKey="day_change_pct" sort={sort} onSort={toggle} numeric />
+              {extraFields.map((f) => (
+                <SortableTh key={f} label={FIELD_LABELS[f] ?? f} sortKey={f} sort={sort} onSort={toggle} numeric />
+              ))}
               <th />
             </tr>
           </thead>
           <tbody>
-            {results.map((m) => {
+            {sortedResults.map((m) => {
               const chg = changeVisual(m.day_change_pct)
               return (
                 <tr key={m.instrument_id}>
@@ -253,6 +297,7 @@ export function ScreenerPage() {
                   <td onClick={(e) => e.stopPropagation()}>
                     <select
                       className="input"
+                      aria-label={`Add ${m.symbol} to a watchlist`}
                       defaultValue=""
                       onChange={(e) => { const v = e.target.value; if (v) { addToWatchlist(m.instrument_id, m.symbol, Number(v)); e.target.value = '' } }}
                       style={{ fontSize: 12, padding: '4px 24px 4px 8px', width: 150 }}
@@ -266,16 +311,16 @@ export function ScreenerPage() {
             })}
           </tbody>
         </table>
-      )}
-      {!previewError && results && results.length === 0 && (
-        <div style={{ padding: 26, textAlign: 'center', color: 'var(--color-neutral-600)', fontSize: 13, border: '1px solid var(--color-neutral-300)' }}>
-          No stocks currently match this rule.
         </div>
       )}
-
-      {screensError && (
-        <p style={{ fontSize: 13, color: 'var(--color-neg-text)', marginTop: 32 }}>Couldn't load saved screens: {screensError}</p>
+      {!previewError && results && results.length === 0 && (
+        <EmptyState
+          title="No stocks currently match this rule."
+          hint="Loosen a condition, or switch the group from AND to OR to widen the net."
+        />
       )}
+
+      {screensError && <ErrorText style={{ marginTop: 32 }}>Couldn't load saved screens: {screensError}</ErrorText>}
       {!screensError && screens && screens.items.length > 0 && (
         <div style={{ marginTop: 32 }}>
           <h5 style={{ margin: '0 0 8px' }}>Saved screens</h5>
@@ -291,26 +336,38 @@ function SavedScreensList({ screens, onChanged }: { screens: ScreenOut[]; onChan
   const [runningId, setRunningId] = useState<number | null>(null)
   const [matches, setMatches] = useState<Record<number, ScreenMatchOut[]>>({})
 
+  // Each of these used to let a rejection escape unhandled: the row simply
+  // stopped responding and the user was never told why.
   async function run(screen: ScreenOut) {
     setRunningId(screen.id)
     try {
       const res = await apiFetch<Page<ScreenMatchOut>>(`/api/screens/${screen.id}/run`, { method: 'POST' })
       setMatches((m) => ({ ...m, [screen.id]: res.items }))
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : `couldn't run "${screen.name}"`)
     } finally {
       setRunningId(null)
     }
   }
 
   async function toggleActive(screen: ScreenOut) {
-    await apiFetch(`/api/screens/${screen.id}`, { method: 'PATCH', body: JSON.stringify({ is_active: !screen.is_active }) })
-    onChanged()
+    try {
+      await apiFetch(`/api/screens/${screen.id}`, { method: 'PATCH', body: JSON.stringify({ is_active: !screen.is_active }) })
+      onChanged()
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'failed to update screen')
+    }
   }
 
   async function remove(screen: ScreenOut) {
-    if (!confirm(`Delete screen "${screen.name}"?`)) return
-    await apiFetch(`/api/screens/${screen.id}`, { method: 'DELETE' })
-    toast(`Deleted "${screen.name}"`)
-    onChanged()
+    if (!confirm(`Delete screen "${screen.name}"? Alerts already raised by it are kept.`)) return
+    try {
+      await apiFetch(`/api/screens/${screen.id}`, { method: 'DELETE' })
+      toast(`Deleted "${screen.name}"`)
+      onChanged()
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'failed to delete screen')
+    }
   }
 
   return (

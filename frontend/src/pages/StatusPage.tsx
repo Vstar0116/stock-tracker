@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { apiFetch, ApiError } from '../lib/api'
-import { fmtNum } from '../lib/format'
+import { ErrorText, fmtNum } from '../lib/format'
 import { usePageHeader } from '../lib/pageHeader'
 import { useToast } from '../lib/toast'
 import { useFetch } from '../lib/useFetch'
@@ -64,8 +64,18 @@ export function StatusPage() {
     }
   }
 
-  if (loading) return <p>Loading…</p>
-  if (error) return <p style={{ color: 'var(--color-neg-text)' }}>{error}</p>
+  if (loading) {
+    return (
+      <div style={{ maxWidth: 900, display: 'grid', gap: 12 }} aria-busy="true" aria-label="Loading system status">
+        <div className="skeleton" style={{ height: 70 }} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+          {[0, 1, 2, 3, 4, 5].map((i) => <div key={i} className="skeleton" style={{ height: 82 }} />)}
+        </div>
+        <div className="skeleton" style={{ height: 240 }} />
+      </div>
+    )
+  }
+  if (error) return <ErrorText>{error}</ErrorText>
   if (!status) return null
 
   return (
@@ -115,9 +125,8 @@ export function StatusPage() {
         </div>
       </div>
 
-      <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 13, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--color-neutral-600)', marginBottom: 8 }}>
-        Last 10 job runs
-      </div>
+      <h2 className="section-label">Last 10 job runs</h2>
+      <div className="table-scroll">
       <table className="table">
         <thead>
           <tr>
@@ -149,10 +158,10 @@ export function StatusPage() {
           )}
         </tbody>
       </table>
-
-      <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 13, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--color-neutral-600)', margin: '24px 0 8px' }}>
-        Recent downloads
       </div>
+
+      <h2 className="section-label" style={{ marginTop: 24 }}>Recent downloads</h2>
+      <div className="table-scroll">
       <table className="table">
         <thead>
           <tr>
@@ -184,6 +193,7 @@ export function StatusPage() {
           )}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }

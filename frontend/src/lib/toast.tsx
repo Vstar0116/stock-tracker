@@ -15,16 +15,21 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={show}>
       {children}
-      {message && (
-        <div
-          style={{
-            position: 'fixed', bottom: 22, right: 28, background: 'var(--color-accent-900)', color: '#fff',
-            padding: '10px 18px', fontSize: 13, boxShadow: 'var(--shadow-lg)', zIndex: 50,
-          }}
-        >
-          {message}
-        </div>
-      )}
+      {/* Always mounted, even when empty: a live region has to exist in the DOM
+          before the text lands in it, or the announcement is missed. */}
+      <div role="status" aria-live="polite" className="toast-region">
+        {message && (
+          <div
+            className="toast"
+            style={{
+              position: 'fixed', bottom: 22, right: 28, background: 'var(--toast-bg)', color: '#fff',
+              padding: '10px 18px', fontSize: 13, boxShadow: 'var(--shadow-lg)', zIndex: 'var(--z-toast)',
+            }}
+          >
+            {message}
+          </div>
+        )}
+      </div>
     </ToastContext.Provider>
   )
 }

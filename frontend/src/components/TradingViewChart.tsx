@@ -28,26 +28,39 @@ export function TradingViewChart({ symbol, studies = [] }: { symbol: string; stu
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
-    container.innerHTML = '<div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>'
 
-    const script = document.createElement('script')
-    script.type = 'text/javascript'
-    script.src = EMBED_SRC
-    script.async = true
-    script.text = JSON.stringify({
-      autosize: true,
-      symbol,
-      interval: 'D',
-      timezone: 'Etc/UTC',
-      theme: 'light',
-      style: '1',
-      locale: 'en',
-      allow_symbol_change: false,
-      hide_side_toolbar: true,
-      studies: studiesKey ? studiesKey.split(',') : [],
-      support_host: 'https://www.tradingview.com',
-    })
-    container.appendChild(script)
+    // The rest of the app follows the OS theme; a light widget on a dark page
+    // reads as broken, not as "the chart just doesn't do dark mode."
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+
+    function mount() {
+      if (!container) return
+      container.innerHTML = '<div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>'
+      const script = document.createElement('script')
+      script.type = 'text/javascript'
+      script.src = EMBED_SRC
+      script.async = true
+      script.text = JSON.stringify({
+        autosize: true,
+        symbol,
+        interval: 'D',
+        timezone: 'Etc/UTC',
+        theme: media.matches ? 'dark' : 'light',
+        style: '1',
+        locale: 'en',
+        allow_symbol_change: false,
+        hide_side_toolbar: true,
+        studies: studiesKey ? studiesKey.split(',') : [],
+        support_host: 'https://www.tradingview.com',
+      })
+      container.appendChild(script)
+    }
+
+    mount()
+    // No JS API to flip the embed's theme in place, so a system theme change
+    // has to re-mount the script same as a symbol change would.
+    media.addEventListener('change', mount)
+    return () => media.removeEventListener('change', mount)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, studiesKey])
 

@@ -1,10 +1,17 @@
-import { useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Corners } from '../components/Blueprint'
+import { EmptyState } from '../components/EmptyState'
 import { apiFetch, ApiError } from '../lib/api'
-import { fmtPrice } from '../lib/format'
+import { ErrorText, fmtPrice } from '../lib/format'
 import { usePageHeader } from '../lib/pageHeader'
+import { SortableTh, useSortableRows } from '../lib/sort'
 import { useFetch } from '../lib/useFetch'
-import type { Page, ScanDirection, ScanResponse, WatchlistOut, Zone, ZoneProtocolParseResponse, ZoneScanResponse } from '../lib/types'
+import {
+  validateZoneParams, ZONE_PARAM_DEFAULTS, ZONE_PARAM_GROUPS, zoneFieldLabel,
+  type ZoneParamKey, type ZoneParamsState,
+} from '../lib/zoneParams'
+import type { Page, ScanDirection, ScanResponse, WatchlistOut, Zone, ZoneProtocolParseResponse, ZoneScanResponse, ZoneOut } from '../lib/types'
 
 const ZONE_COLORS: Record<Zone, string> = {
   A: 'var(--color-pos-text)',
@@ -15,29 +22,8 @@ const ZONE_COLORS: Record<Zone, string> = {
   'Insufficient Data': 'var(--color-neutral-600)',
 }
 
-// Mirrors app/api/zone.py's _params_from_query defaults.
-const ZONE_PARAM_DEFAULTS = {
-  macro_sma_period: '200',
-  fast_ema_period: '9',
-  slow_ema_period: '21',
-  rsi_period: '14',
-  rsi_zone_a_max: '55',
-  rsi_zone_b_low: '56',
-  rsi_zone_b_high: '65',
-  rsi_zone_c_low: '66',
-  rsi_zone_c_high: '71',
-  rsi_zone_d_min: '72',
-  atr_period: '14',
-  atr_limit_multiplier: '0.25',
-  rvol_period: '20',
-  near_ema_pct: '0.02',
-}
-
-type ZoneParamsState = typeof ZONE_PARAM_DEFAULTS
-type ZoneParamKey = keyof ZoneParamsState
-
 export function CustomScanPage() {
-  usePageHeader('Custom Scan', 'Scan the whole market — MA crossover or BS-V4 zone classification — takes a few seconds, unlike the instant Screener')
+  usePageHeader('Custom Scan', 'Whole-market MA crossover or zone classification. Takes a few seconds.')
 
   const [scanType, setScanType] = useState<'crossover' | 'zone'>('crossover')
 
@@ -80,8 +66,10 @@ export function CustomScanPage() {
     }
   }
 
+  const zoneInvalid = useMemo(() => validateZoneParams(zoneParams), [zoneParams])
+
   async function runZoneScan() {
-    if (zoneLoading) return
+    if (zoneLoading || zoneInvalid) return
     setZoneLoading(true)
     setZoneError(null)
     try {
@@ -100,55 +88,55 @@ export function CustomScanPage() {
   return (
     <div style={{ maxWidth: 900 }}>
       <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
-        <button type="button" className={scanType === 'crossover' ? 'btn btn-primary blueprint' : 'btn btn-secondary'} onClick={() => setScanType('crossover')}>
-          {scanType === 'crossover' && (<><i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" /></>)}
+        <button type="button" className={scanType === 'crossover' ? 'btn btn-primary blueprint' : 'btn btn-secondary'} aria-pressed={scanType === 'crossover'} onClick={() => setScanType('crossover')}>
+          {scanType === 'crossover' && <Corners />}
           MA Crossover
         </button>
-        <button type="button" className={scanType === 'zone' ? 'btn btn-primary blueprint' : 'btn btn-secondary'} onClick={() => setScanType('zone')}>
-          {scanType === 'zone' && (<><i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" /></>)}
+        <button type="button" className={scanType === 'zone' ? 'btn btn-primary blueprint' : 'btn btn-secondary'} aria-pressed={scanType === 'zone'} onClick={() => setScanType('zone')}>
+          {scanType === 'zone' && <Corners />}
           Zone Classifier
         </button>
       </div>
 
       {scanType === 'zone' ? (
         <ZoneScanSection
-          params={zoneParams} onParamsChange={setZoneParams}
+          params={zoneParams} onParamsChange={setZoneParams} invalid={zoneInvalid}
           watchlists={watchlists} watchlistId={zoneWatchlistId} onWatchlistIdChange={setZoneWatchlistId}
           result={zoneResult} loading={zoneLoading} error={zoneError} onRun={runZoneScan}
         />
       ) : (
-      <>
+      <div className="reveal">
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
-        <div className="field" style={{ margin: 0 }}>
-          <label>Fast period</label>
-          <input className="input" style={{ width: 90 }} value={fast} onChange={(e) => setFast(e.target.value)} />
-        </div>
-        <div className="field" style={{ margin: 0 }}>
-          <label>Slow period</label>
-          <input className="input" style={{ width: 90 }} value={slow} onChange={(e) => setSlow(e.target.value)} />
-        </div>
-        <div className="field" style={{ margin: 0 }}>
-          <label>Type</label>
+        <label className="field" style={{ margin: 0 }}>
+          <span className="field-label">Fast period</span>
+          <input className="input" type="number" min={1} max={400} style={{ width: 90 }} value={fast} onChange={(e) => setFast(e.target.value)} />
+        </label>
+        <label className="field" style={{ margin: 0 }}>
+          <span className="field-label">Slow period</span>
+          <input className="input" type="number" min={2} max={400} style={{ width: 90 }} value={slow} onChange={(e) => setSlow(e.target.value)} />
+        </label>
+        <label className="field" style={{ margin: 0 }}>
+          <span className="field-label">Type</span>
           <select className="input" style={{ width: 90 }} value={maType} onChange={(e) => setMaType(e.target.value as 'sma' | 'ema')}>
             <option value="sma">SMA</option>
             <option value="ema">EMA</option>
           </select>
-        </div>
-        <div className="field" style={{ margin: 0 }}>
-          <label>Direction</label>
+        </label>
+        <label className="field" style={{ margin: 0 }}>
+          <span className="field-label">Direction</span>
           <select className="input" style={{ width: 150 }} value={direction} onChange={(e) => setDirection(e.target.value as ScanDirection)}>
             <option value="any">Both</option>
             <option value="crossed_above">Crossed above</option>
             <option value="crossed_below">Crossed below</option>
           </select>
-        </div>
+        </label>
         <button type="button" className="btn btn-primary blueprint" onClick={runScan} disabled={invalid || loading} style={{ whiteSpace: 'nowrap' }}>
-          <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
+          <Corners />
           {loading ? 'Running…' : 'Run scan'}
         </button>
       </div>
-      {invalid && <p className="text-muted" style={{ fontSize: 12, marginBottom: 14 }}>fast must be a positive integer less than slow (max 400).</p>}
-      {error && <p style={{ fontSize: 13, color: 'var(--color-neg-text)', marginBottom: 14 }}>{error}</p>}
+      {invalid && <ErrorText style={{ fontSize: 12 }}>Fast must be a whole number below slow, and slow at most 400.</ErrorText>}
+      {error && <ErrorText>{error}</ErrorText>}
 
       {result && (
         <>
@@ -159,74 +147,68 @@ export function CustomScanPage() {
             {' — '}{result.stats.elapsed_ms}ms{result.stats.cached ? ' (cached)' : ''}
           </p>
           {result.matches.length === 0 ? (
-            <div style={{ padding: 26, textAlign: 'center', color: 'var(--color-neutral-600)', fontSize: 13, border: '1px solid var(--color-neutral-300)' }}>
-              No stocks currently match this crossover.
-            </div>
+            <EmptyState
+              title="No stocks currently match this crossover."
+              hint="Widen the gap between the fast and slow periods, or set Direction to Both."
+            />
           ) : (
-            <table className="table">
-              <thead>
-                <tr><th>Symbol</th><th>Sector</th><th style={{ textAlign: 'right' }}>Price</th><th>Signal</th></tr>
-              </thead>
-              <tbody>
-                {result.matches.map((m) => (
-                  <tr key={m.instrument_id}>
-                    <td><Link to={`/stocks/${m.instrument_id}`} state={{ from: '/scan', fromLabel: 'Custom Scan' }}><strong>{m.symbol}</strong></Link></td>
-                    <td>{m.sector ? <span className="tag tag-outline">{m.sector}</span> : <span className="text-muted">—</span>}</td>
-                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtPrice(m.latest_close)}</td>
-                    <td>
-                      <span className="tag tag-accent">{m.signal === 'crossed_above' ? 'Crossed above' : 'Crossed below'}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <CrossoverTable matches={result.matches} />
           )}
         </>
       )}
-      </>
+      </div>
       )}
     </div>
   )
 }
 
-const ZONE_PARAM_GROUPS: { title: string; fields: { key: ZoneParamKey; label: string; width?: number }[] }[] = [
-  {
-    title: 'Moving averages', fields: [
-      { key: 'macro_sma_period', label: 'Macro SMA period' },
-      { key: 'fast_ema_period', label: 'Fast EMA period' },
-      { key: 'slow_ema_period', label: 'Slow EMA period' },
-      { key: 'near_ema_pct', label: 'Near-EMA (fraction)' },
-    ],
-  },
-  {
-    title: 'RSI zones', fields: [
-      { key: 'rsi_period', label: 'RSI period' },
-      { key: 'rsi_zone_a_max', label: 'Zone A max' },
-      { key: 'rsi_zone_b_low', label: 'Zone B low' },
-      { key: 'rsi_zone_b_high', label: 'Zone B high' },
-      { key: 'rsi_zone_c_low', label: 'Zone C low' },
-      { key: 'rsi_zone_c_high', label: 'Zone C high' },
-      { key: 'rsi_zone_d_min', label: 'Zone D min' },
-    ],
-  },
-  {
-    title: 'ATR / volume', fields: [
-      { key: 'atr_period', label: 'ATR period' },
-      { key: 'atr_limit_multiplier', label: 'ATR limit multiplier' },
-      { key: 'rvol_period', label: 'RVol period' },
-    ],
-  },
-]
+type CrossoverMatch = ScanResponse['matches'][number]
 
-const ZONE_FIELD_LABELS: Record<ZoneParamKey, string> = Object.fromEntries(
-  ZONE_PARAM_GROUPS.flatMap((g) => g.fields).map((f) => [f.key, f.label])
-) as Record<ZoneParamKey, string>
+const crossoverSortValue = (m: CrossoverMatch, key: string): unknown => {
+  if (key === 'latest_close') return m.latest_close
+  return m[key as 'symbol' | 'sector' | 'signal']
+}
+
+function CrossoverTable({ matches }: { matches: CrossoverMatch[] }) {
+  const { rows, sort, toggle } = useSortableRows(matches, crossoverSortValue)
+  return (
+    <div className="table-scroll">
+      <table className="table">
+        <thead>
+          <tr>
+            <SortableTh label="Symbol" sortKey="symbol" sort={sort} onSort={toggle} />
+            <SortableTh label="Sector" sortKey="sector" sort={sort} onSort={toggle} />
+            <SortableTh label="Price" sortKey="latest_close" sort={sort} onSort={toggle} numeric />
+            <SortableTh label="Signal" sortKey="signal" sort={sort} onSort={toggle} />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((m) => (
+            <tr key={m.instrument_id}>
+              <td><Link to={`/stocks/${m.instrument_id}`} state={{ from: '/scan', fromLabel: 'Custom Scan' }}><strong>{m.symbol}</strong></Link></td>
+              <td>{m.sector ? <span className="tag tag-outline">{m.sector}</span> : <span className="text-muted">—</span>}</td>
+              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtPrice(m.latest_close)}</td>
+              <td>
+                <span className="tag tag-accent">{m.signal === 'crossed_above' ? 'Crossed above' : 'Crossed below'}</span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+const zoneSortValue = (m: ZoneOut, key: string): unknown => m[key as keyof ZoneOut]
+// Stable identity so the sort memo doesn't re-run on every render before a scan.
+const EMPTY_ZONE_ROWS: ZoneOut[] = []
 
 function ZoneScanSection({
-  params, onParamsChange, watchlists, watchlistId, onWatchlistIdChange, result, loading, error, onRun,
+  params, onParamsChange, invalid, watchlists, watchlistId, onWatchlistIdChange, result, loading, error, onRun,
 }: {
   params: ZoneParamsState
   onParamsChange: (p: ZoneParamsState) => void
+  invalid: string | null
   watchlists: WatchlistOut[]
   watchlistId: string
   onWatchlistIdChange: (id: string) => void
@@ -241,13 +223,13 @@ function ZoneScanSection({
   const [pdfError, setPdfError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const { rows: zoneRows, sort, toggle } = useSortableRows(result?.matches ?? EMPTY_ZONE_ROWS, zoneSortValue)
+
   function setField(key: ZoneParamKey, value: string) {
     onParamsChange({ ...params, [key]: value })
   }
 
-  function fieldLabel(key: string): string {
-    return ZONE_FIELD_LABELS[key as ZoneParamKey] ?? key
-  }
+  const fieldLabel = useCallback((key: string) => zoneFieldLabel(key), [])
 
   async function uploadProtocolPdf(file: File) {
     setPdfBusy(true)
@@ -278,10 +260,10 @@ function ZoneScanSection({
   }
 
   return (
-    <>
+    <div className="reveal">
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
-        <button type="button" className="btn btn-primary blueprint" onClick={onRun} disabled={loading} style={{ whiteSpace: 'nowrap' }}>
-          <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
+        <button type="button" className="btn btn-primary blueprint" onClick={onRun} disabled={loading || invalid !== null} style={{ whiteSpace: 'nowrap' }}>
+          <Corners />
           {loading ? 'Running…' : 'Run scan'}
         </button>
         <div className="field" style={{ margin: 0 }}>
@@ -296,7 +278,6 @@ function ZoneScanSection({
             ))}
           </select>
         </div>
-        <span className="text-muted" style={{ fontSize: 12.5 }}>Classifies every stock into Zone A–D by RSI/trend position.</span>
         <input
           ref={fileInputRef} type="file" accept="application/pdf" style={{ display: 'none' }}
           onChange={(e) => {
@@ -311,41 +292,57 @@ function ZoneScanSection({
         >
           {pdfBusy ? 'Reading PDF…' : 'Upload protocol PDF'}
         </button>
-        <button type="button" className="btn btn-ghost" style={{ fontSize: 12.5, padding: 0, marginLeft: 'auto' }} onClick={() => setShowAdvanced((s) => !s)}>
+        <button
+          type="button" className="btn btn-ghost" style={{ fontSize: 12.5, padding: 0, marginLeft: 'auto' }}
+          onClick={() => setShowAdvanced((s) => !s)} aria-expanded={showAdvanced}
+        >
           {showAdvanced ? 'Hide' : 'Show'} advanced parameters
         </button>
       </div>
-      {pdfError && <p style={{ fontSize: 13, color: 'var(--color-neg-text)', marginBottom: 14 }}>{pdfError}</p>}
-      {pdfMessage && <p style={{ fontSize: 12.5, color: 'var(--color-neutral-600)', marginBottom: 14 }}>{pdfMessage}</p>}
+
+      {/* The zone letters were explained only by a title tooltip, which is
+          invisible on touch and to a screen reader. */}
+      <p className="text-muted" style={{ fontSize: 12.5, margin: '0 0 14px', maxWidth: 720 }}>
+        Every stock is placed in a zone by where its RSI sits relative to its trend.
+        <strong> A</strong> and <strong>B</strong> are constructive (RSI up to the Zone B band, price holding its EMAs);
+        <strong> C</strong> and <strong>D</strong> are extended (RSI in the upper bands). Thresholds are yours to set below.
+      </p>
+
+      {pdfError && <ErrorText>{pdfError}</ErrorText>}
+      {pdfMessage && <p role="status" style={{ fontSize: 12.5, color: 'var(--color-neutral-600)', marginBottom: 14 }}>{pdfMessage}</p>}
 
       {showAdvanced && (
-        <div className="card blueprint" style={{ padding: 16, marginBottom: 18 }}>
-          <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
+        <div className="card blueprint reveal" style={{ padding: 16, marginBottom: 18 }}>
+          <Corners />
           {ZONE_PARAM_GROUPS.map((group) => (
             <div key={group.title} style={{ marginBottom: 14 }}>
               <div className="card-kicker" style={{ marginBottom: 8 }}>{group.title}</div>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 {group.fields.map((f) => (
-                  <div key={f.key} className="field" style={{ margin: 0 }}>
-                    <label>{f.label}</label>
+                  <label key={f.key} className="field" style={{ margin: 0 }}>
+                    <span className="field-label">{f.label}</span>
                     <input
                       className="input" style={{ width: f.width ?? 100 }}
+                      type="number" min={f.min} max={f.max} step={f.step ?? (f.int ? '1' : 'any')}
                       value={params[f.key]} onChange={(e) => setField(f.key, e.target.value)}
                     />
-                  </div>
+                  </label>
                 ))}
               </div>
             </div>
           ))}
           <button
-            type="button" className="btn btn-secondary" style={{ fontSize: 12.5 }}
+            type="button" className="btn btn-secondary" style={{ fontSize: 12.5, alignSelf: 'flex-start' }}
             onClick={() => onParamsChange(ZONE_PARAM_DEFAULTS)}
           >
             Reset to defaults
           </button>
         </div>
       )}
-      {error && <p style={{ fontSize: 13, color: 'var(--color-neg-text)', marginBottom: 14 }}>{error}</p>}
+      {/* Caught here rather than as a 422 from the server, matching what the
+          Crossover tab on this same page already did. */}
+      {invalid && <ErrorText>{invalid}</ErrorText>}
+      {error && <ErrorText>{error}</ErrorText>}
 
       {result && (
         <>
@@ -355,33 +352,43 @@ function ZoneScanSection({
             {' — '}{result.elapsed_ms}ms{result.cached ? ' (cached)' : ''}
           </p>
           {result.matches.length === 0 ? (
-            <div style={{ padding: 26, textAlign: 'center', color: 'var(--color-neutral-600)', fontSize: 13, border: '1px solid var(--color-neutral-300)' }}>
-              No stocks currently classify into a zone.
-            </div>
+            <EmptyState
+              title="No stocks currently classify into a zone."
+              hint="Widen the RSI bands under advanced parameters, or scan the whole market instead of a single watchlist."
+            />
           ) : (
-            <table className="table">
-              <thead>
-                <tr><th>Symbol</th><th>Zone</th><th style={{ textAlign: 'right' }}>RSI</th><th style={{ textAlign: 'right' }}>Price</th><th>Reason</th></tr>
-              </thead>
-              <tbody>
-                {result.matches.map((m) => (
-                  <tr key={m.instrument_id}>
-                    <td><Link to={`/stocks/${m.instrument_id}`} state={{ from: '/scan', fromLabel: 'Custom Scan' }}><strong>{m.ticker}</strong></Link></td>
-                    <td>
-                      <span className="tag tag-outline" style={{ color: ZONE_COLORS[m.zone], borderColor: ZONE_COLORS[m.zone] }} title={m.zone_label}>
-                        {m.zone}
-                      </span>
-                    </td>
-                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{m.rsi !== null ? m.rsi.toFixed(1) : '—'}</td>
-                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtPrice(m.price)}</td>
-                    <td style={{ fontSize: 12.5, color: 'var(--color-neutral-600)' }}>{m.reason}</td>
+            <div className="table-scroll">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <SortableTh label="Symbol" sortKey="ticker" sort={sort} onSort={toggle} />
+                    <SortableTh label="Zone" sortKey="zone" sort={sort} onSort={toggle} />
+                    <SortableTh label="RSI" sortKey="rsi" sort={sort} onSort={toggle} numeric />
+                    <SortableTh label="Price" sortKey="price" sort={sort} onSort={toggle} numeric />
+                    <th>Reason</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {zoneRows.map((m) => (
+                    <tr key={m.instrument_id}>
+                      <td><Link to={`/stocks/${m.instrument_id}`} state={{ from: '/scan', fromLabel: 'Custom Scan' }}><strong>{m.ticker}</strong></Link></td>
+                      <td>
+                        <span className="tag tag-outline" style={{ color: ZONE_COLORS[m.zone], borderColor: ZONE_COLORS[m.zone], whiteSpace: 'nowrap' }}>
+                          {m.zone}
+                          <span className="sr-only"> — {m.zone_label}</span>
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{m.rsi !== null ? m.rsi.toFixed(1) : '—'}</td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtPrice(m.price)}</td>
+                      <td style={{ fontSize: 12.5, color: 'var(--color-neutral-600)' }}>{m.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </>
       )}
-    </>
+    </div>
   )
 }

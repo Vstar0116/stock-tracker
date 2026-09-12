@@ -56,6 +56,7 @@ DAILY_NUMERIC_FIELDS = {
     "sma_100",
     "sma_200",
     "ema_20",
+    "ema_21",
     "ema_50",
     "rsi_14",
     "macd",
@@ -70,7 +71,18 @@ DAILY_NUMERIC_FIELDS = {
 # Usable in compare/between but not crossover ("crossed above" implies a
 # yesterday-vs-today relationship that doesn't make sense for a value that
 # might not change for months).
-FUNDAMENTAL_FIELDS = {"pe", "pb", "roce", "debt_to_equity", "market_cap"}
+FUNDAMENTAL_FIELDS = {
+    "pe",
+    "pb",
+    "roce",
+    "debt_to_equity",
+    "market_cap",
+    "peg",
+    "eps_diluted",
+    "eps_growth",
+    "fcf_per_share",
+    "fcf_conversion",
+}
 
 NUMERIC_FIELDS = DAILY_NUMERIC_FIELDS | FUNDAMENTAL_FIELDS
 CATEGORICAL_FIELDS = {"sector", "industry", "exchange", "series"}

@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 SMA_WINDOWS = (20, 50, 100, 200)
-EMA_WINDOWS = (20, 50)
+EMA_WINDOWS = (20, 21, 50)
 RSI_WINDOW = 14
 MACD_FAST, MACD_SLOW, MACD_SIGNAL = 12, 26, 9
 ATR_WINDOW = 14
@@ -198,6 +198,7 @@ def compute_all_indicators(prices: pd.DataFrame) -> pd.DataFrame:
             "sma_100": sma(price, 100),
             "sma_200": sma(price, 200),
             "ema_20": ema(price, 20),
+            "ema_21": ema(price, 21),  # BS-GARP protocol Zone B accumulation limit anchor
             "ema_50": ema(price, 50),
             "rsi_14": rsi(price, RSI_WINDOW),
             "macd": macd_df["macd"],

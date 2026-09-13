@@ -155,7 +155,7 @@ export interface AlertOut {
   exchange: string
   trade_date: string
   triggered_at: string
-  snapshot: Record<string, number | null>
+  snapshot: Record<string, number | string | null>
   seen: boolean
 }
 

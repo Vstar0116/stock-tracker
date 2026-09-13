@@ -5,10 +5,10 @@ import { EmptyState } from '../components/EmptyState'
 import { RuleGroup } from '../components/RuleGroup'
 import { apiFetch, ApiError } from '../lib/api'
 import { downloadCsv } from '../lib/csv'
-import { changeVisual, ChangeGlyph, ErrorText, fmtPct, fmtPrice } from '../lib/format'
+import { changeVisual, ChangeGlyph, ErrorText, fmtPct, fmtPrice, FundamentalsAsOf } from '../lib/format'
 import { usePageHeader } from '../lib/pageHeader'
 import { SortableTh, useSortableRows } from '../lib/sort'
-import { applyRuleAction, collectFields, FIELD_LABELS, screenRuleToUiTree, uiTreeToScreenRule } from '../lib/ruleTree'
+import { applyRuleAction, collectFields, FIELD_LABELS, FUNDAMENTAL_FIELD_NAMES, screenRuleToUiTree, uiTreeToScreenRule } from '../lib/ruleTree'
 import type { RuleAction } from '../lib/ruleTree'
 import { useToast } from '../lib/toast'
 import { useFetch } from '../lib/useFetch'
@@ -73,6 +73,27 @@ export function ScreenerPage() {
   }, [])
   const resultRows = useMemo(() => results ?? [], [results])
   const { rows: sortedResults, sort, toggle } = useSortableRows(resultRows, matchSortValue)
+  // fundamentals_as_of rides along on every match regardless of whether the
+  // rule actually screens on a fundamentals field (compile_screen always
+  // includes it, like sector/close) -- gate the badge on the rule itself, or
+  // a pure price/technical screen would show a "fundamentals as of" badge
+  // just because one of its matches happens to also have fundamentals on
+  // file, which has nothing to do with what the rule is screening for.
+  const usesFundamentals = useMemo(
+    () => Array.from(collectFields(root)).some((f) => FUNDAMENTAL_FIELD_NAMES.has(f)),
+    [root],
+  )
+  // Every match row carries the same fundamentals_as_of when it's present at
+  // all (this app's fundamentals are seeded in one batch, not per-symbol on
+  // different days), so the first match found is representative -- not a
+  // per-row guarantee, just true of how the data is actually populated today.
+  const fundamentalsAsOf = useMemo(
+    () =>
+      usesFundamentals
+        ? (resultRows.find((m) => typeof m.values.fundamentals_as_of === 'string')?.values.fundamentals_as_of as string | undefined)
+        : undefined,
+    [resultRows, usesFundamentals],
+  )
 
   useEffect(() => {
     if (!definition) {
@@ -254,6 +275,7 @@ export function ScreenerPage() {
                   ? `${results.length} matches, live as you edit the rule`
                   : 'add a condition to see matches'}
           </span>
+          <FundamentalsAsOf asOf={fundamentalsAsOf} />
           {!previewError && results && results.length > 0 && (
             <button type="button" className="btn btn-ghost" style={{ fontSize: 12.5, padding: 0, whiteSpace: 'nowrap' }} onClick={exportResultsCsv}>
               Export CSV

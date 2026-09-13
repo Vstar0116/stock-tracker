@@ -2,12 +2,13 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Corners } from '../components/Blueprint'
 import { apiFetch } from '../lib/api'
-import { ErrorText } from '../lib/format'
+import { ErrorText, FundamentalsAsOf } from '../lib/format'
+import { collectFields, FUNDAMENTAL_FIELD_NAMES, screenRuleToUiTree } from '../lib/ruleTree'
 import { IconBell } from '../lib/icons'
 import { usePageHeader } from '../lib/pageHeader'
 import { useToast } from '../lib/toast'
 import { useFetch } from '../lib/useFetch'
-import type { AlertOut, Page, ScreenOut } from '../lib/types'
+import type { AlertOut, Page, ScreenOut, ScreenRule } from '../lib/types'
 
 const DATE_RANGES = [
   { value: 'all', label: 'All time' },
@@ -31,6 +32,7 @@ function fmtDateLabel(iso: string): string {
 
 function snapshotLine(snapshot: Record<string, number | string | null>): string {
   return Object.entries(snapshot)
+    .filter(([k]) => k !== 'fundamentals_as_of')
     .map(([k, v]) => `${k}: ${typeof v === 'number' ? v.toFixed(2) : v}`)
     .join(', ')
 }
@@ -48,6 +50,19 @@ export function AlertsPage() {
   const [marking, setMarking] = useState(false)
 
   const alerts = data?.items ?? []
+  // Same reasoning as ScreenerPage: fundamentals_as_of rides along on every
+  // alert regardless of whether that screen actually screens on a
+  // fundamentals field, so only show the badge for screens whose own rule
+  // references one -- otherwise a pure price screen would show a
+  // "fundamentals as of" badge just because the matched instrument happens
+  // to also have unrelated fundamentals data on file.
+  const fundamentalsScreenIds = useMemo(() => {
+    const ids = new Set<number>()
+    for (const s of screensPage?.items ?? []) {
+      if (Array.from(collectFields(screenRuleToUiTree(s.definition as ScreenRule))).some((f) => FUNDAMENTAL_FIELD_NAMES.has(f))) ids.add(s.id)
+    }
+    return ids
+  }, [screensPage])
   const filtered = useMemo(() => {
     return alerts.filter((a) => {
       if (screenFilter !== 'all' && String(a.screen_id) !== screenFilter) return false
@@ -168,6 +183,9 @@ export function AlertsPage() {
                     <strong>{a.symbol}</strong>
                   </Link>
                   <span style={{ color: 'var(--color-neutral-600)', fontSize: 12.5, whiteSpace: 'nowrap' }}>{a.exchange}</span>
+                  <FundamentalsAsOf
+                    asOf={fundamentalsScreenIds.has(a.screen_id) && typeof a.snapshot.fundamentals_as_of === 'string' ? a.snapshot.fundamentals_as_of : undefined}
+                  />
                 </div>
                 <div style={{ fontSize: 13.5, marginBottom: 3 }}>matched on {a.trade_date}</div>
                 <div style={{ fontSize: 12, color: 'var(--color-neutral-600)', fontVariantNumeric: 'tabular-nums' }}>{snapshotLine(a.snapshot)}</div>

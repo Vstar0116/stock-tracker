@@ -8,6 +8,17 @@ export const NUMERIC_FIELDS = [
   'rsi_14', 'macd', 'macd_signal', 'macd_histogram', 'atr_14', 'volume_sma_20', 'high_52w', 'low_52w',
   'pe', 'pb', 'roce', 'debt_to_equity', 'market_cap',
 ]
+// Mirrors app/schemas/screen.py's FUNDAMENTAL_FIELDS -- wider than
+// NUMERIC_FIELDS above (which only lists what the rule-builder dropdown
+// currently offers): includes peg/eps_diluted/eps_growth/fcf_per_share/
+// fcf_conversion, which a screen can reference even though the dropdown
+// can't build one from scratch yet (they arrive via saved/NL-generated
+// screens). Used only to decide whether a match's fundamentals_as_of
+// staleness badge is relevant to what the rule actually screens on.
+export const FUNDAMENTAL_FIELD_NAMES = new Set([
+  'pe', 'pb', 'roce', 'debt_to_equity', 'market_cap',
+  'peg', 'eps_diluted', 'eps_growth', 'fcf_per_share', 'fcf_conversion',
+])
 export const CATEGORICAL_FIELDS = ['sector', 'industry', 'exchange', 'series']
 export const ALL_FIELDS = [...NUMERIC_FIELDS, ...CATEGORICAL_FIELDS]
 export const CROSSABLE_FIELDS = new Set([

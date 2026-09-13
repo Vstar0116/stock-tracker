@@ -48,9 +48,10 @@ nl_screen_daily_limiter = RateLimiter(
 def _snapshot(row) -> dict:
     # Categorical fields (sector/industry/series) can appear here via an
     # "in" rule -- only numeric values get the float cast, or a string like
-    # "IT" blows up trying to become a float.
+    # "IT" blows up trying to become a float. fundamentals_as_of is a `date`
+    # (isoformat, not str) -- checked first, or float() blows up on it too.
     return {
-        k: (float(v) if v is not None and not isinstance(v, str) else v)
+        k: (v.isoformat() if hasattr(v, "isoformat") else float(v) if v is not None and not isinstance(v, str) else v)
         for k, v in row.items()
         if k not in NON_SNAPSHOT_COLUMNS
     }

@@ -36,7 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.1.0
         with:
           # Floor declared in pyproject.toml's requires-python -- nothing pins
           # a specific deploy version the way docker-compose.yml does for

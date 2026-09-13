@@ -280,3 +280,25 @@ export interface ZoneProtocolParseResponse {
   found: Record<string, number>
   not_found: string[]
 }
+
+export interface MarketMoverOut {
+  symbol: string
+  exchange: string
+  close: number
+  change_pct: number
+}
+
+export interface MarketSnapshotOut {
+  as_of: string
+  instrument_count: number
+  up_count: number
+  down_count: number
+  moved_2pct_count: number
+  golden_cross_count: number
+  volume_breakout_count: number
+  alerts_today: number
+  ticker: MarketMoverOut[]
+  top_movers: MarketMoverOut[]
+  golden_cross: MarketMoverOut[]
+  volume_breakout: MarketMoverOut[]
+}

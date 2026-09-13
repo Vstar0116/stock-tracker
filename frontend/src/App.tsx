@@ -5,6 +5,7 @@ import { HeaderProvider } from './lib/pageHeader'
 import { ToastProvider } from './lib/toast'
 import { AlertsPage } from './pages/AlertsPage'
 import { CustomScanPage } from './pages/CustomScanPage'
+import { LandingPage } from './pages/LandingPage'
 import { LoginPage } from './pages/LoginPage'
 import { ScreenerPage } from './pages/ScreenerPage'
 import { StatusPage } from './pages/StatusPage'
@@ -18,6 +19,7 @@ export default function App() {
         <ToastProvider>
           <HeaderProvider>
             <Routes>
+              <Route path="/" element={<LandingPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route
                 element={
@@ -32,9 +34,8 @@ export default function App() {
                 <Route path="/alerts" element={<AlertsPage />} />
                 <Route path="/status" element={<StatusPage />} />
                 <Route path="/stocks/:id" element={<StockDetailPage />} />
-                <Route path="/" element={<Navigate to="/watchlists" replace />} />
               </Route>
-              <Route path="*" element={<Navigate to="/watchlists" replace />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </HeaderProvider>
         </ToastProvider>

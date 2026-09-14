@@ -96,3 +96,37 @@ export function IconArrowLeft({ size = 14, ...props }: IconProps) {
     </svg>
   )
 }
+
+export function IconHome({ size = 16, ...props }: IconProps) {
+  return (
+    <svg {...base(size)} {...props}>
+      <path d="M3 11.5 12 4l9 7.5" /><path d="M5.5 10v9a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-9" />
+    </svg>
+  )
+}
+
+export function IconLogout({ size = 16, ...props }: IconProps) {
+  return (
+    <svg {...base(size)} {...props}>
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
+  )
+}
+
+export function IconBriefcase({ size = 16, ...props }: IconProps) {
+  return (
+    <svg {...base(size)} {...props}>
+      <rect x="2.5" y="7" width="19" height="13" rx="2" /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <line x1="2.5" y1="13" x2="21.5" y2="13" />
+    </svg>
+  )
+}
+
+export function IconWand({ size = 16, ...props }: IconProps) {
+  return (
+    <svg {...base(size)} {...props}>
+      <path d="M4 20 L16 8" /><path d="M14 3v3" /><path d="M19 5h3" /><path d="M18 10l1.5 1.5" /><path d="M20 15h2" />
+    </svg>
+  )
+}

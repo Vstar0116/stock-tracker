@@ -1,21 +1,30 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { CommandPalette } from './CommandPalette'
 import { ErrorBoundary } from './ErrorBoundary'
 import { apiFetch } from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { IconActivity, IconBell, IconCheckCircle, IconList, IconMenu, IconSearch, IconSliders, IconWarningTriangle } from '../lib/icons'
+import { IconActivity, IconBell, IconBriefcase, IconCheckCircle, IconHome, IconList, IconLogout, IconMenu, IconSearch, IconSliders, IconWand, IconWarningTriangle } from '../lib/icons'
 import { useHeader } from '../lib/pageHeader'
 import type { AlertOut, Page, StatusOut } from '../lib/types'
 
 const POLL_MS = 5 * 60_000
 
 const NAV_ITEMS = [
+  { to: '/dashboard', label: 'Dashboard', icon: <IconHome /> },
   { to: '/watchlists', label: 'Watchlists', icon: <IconList /> },
+  { to: '/portfolio', label: 'Portfolio', icon: <IconBriefcase /> },
   { to: '/screener', label: 'Screener', icon: <IconSliders /> },
+  { to: '/alert-wizard', label: 'Alert Wizard', icon: <IconWand /> },
   { to: '/scan', label: 'Custom Scan', icon: <IconSearch /> },
   { to: '/alerts', label: 'Alerts', icon: <IconBell /> },
   { to: '/status', label: 'Status', icon: <IconActivity /> },
 ]
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/)
+  return ((parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase()
+}
 
 function FreshnessBox() {
   const [status, setStatus] = useState<StatusOut | null>(null)
@@ -33,28 +42,25 @@ function FreshnessBox() {
 
   if (!status) return null
   const isStale = !status.is_current
-  const border = isStale ? 'var(--color-warn-border)' : 'var(--color-pos-border)'
-  const bg = isStale ? 'var(--color-warn-bg)' : 'var(--color-pos-bg)'
-  const text = isStale ? 'var(--color-warn-text)' : 'var(--color-pos-text)'
-  const label = status.latest_trade_date ? `Data as of ${status.latest_trade_date}` : 'No data yet'
+  const dotColor = isStale ? 'var(--color-warn-text)' : 'var(--color-pos-text)'
+  const label = isStale ? 'Data one day behind' : 'Data current'
   const sub = isStale
-    ? `Expected ${status.expected_trade_date} — tonight's pipeline may not have completed`
-    : 'Pipeline completed on schedule'
+    ? `Expected ${status.expected_trade_date}, showing ${status.latest_trade_date ?? 'no data'}`
+    : status.latest_trade_date
+      ? `Close of ${status.latest_trade_date} ingested`
+      : 'Pipeline completed on schedule'
 
   return (
     <div
       className="freshness-box"
-      style={{
-        display: 'flex', alignItems: 'center', gap: 9, padding: '7px 13px', fontFamily: 'var(--font-body)',
-        flexShrink: 0, whiteSpace: 'nowrap', border: `1px solid ${border}`, background: bg, color: text,
-      }}
+      style={{ background: 'var(--color-surface-2)', borderRadius: 18, padding: 16, fontFamily: 'var(--font-body)' }}
       title={`last pipeline run: ${status.last_pipeline_run_at ?? 'never'} (${status.last_pipeline_status ?? 'unknown'})`}
     >
-      {isStale ? <IconWarningTriangle /> : <IconCheckCircle />}
-      <div>
-        <div style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap' }}>{label}</div>
-        <div className="freshness-sub" style={{ fontSize: 11, opacity: 0.85, whiteSpace: 'nowrap' }}>{sub}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, color: dotColor }}>
+        {isStale ? <IconWarningTriangle size={14} /> : <IconCheckCircle size={14} />}
+        <span style={{ fontSize: 13, fontWeight: 600 }}>{label}</span>
       </div>
+      <div className="freshness-sub" style={{ fontSize: 12.5, color: 'var(--color-neutral-600)', lineHeight: 1.45 }}>{sub}</div>
     </div>
   )
 }
@@ -82,17 +88,37 @@ export function AppShell() {
   const header = useHeader()
   const unseenAlerts = useUnseenAlertsCount()
   const [navOpen, setNavOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const location = useLocation()
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen((o) => !o)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   return (
     <div className={navOpen ? 'app-shell nav-open' : 'app-shell'}>
       <div className="app-scrim" onClick={() => setNavOpen(false)} aria-hidden="true" />
 
       <aside className="app-sidebar">
-        <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 20, letterSpacing: '-0.01em', padding: '0 8px 4px' }}>NSE TRACKER</div>
-        <div style={{ fontSize: 11, color: 'var(--color-neutral-600)', padding: '0 8px 22px', letterSpacing: '0.02em', whiteSpace: 'nowrap' }}>
-          Watchlists · Screener · Alerts
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px 22px' }}>
+          <div style={{ width: 32, height: 32, borderRadius: 11, background: 'var(--color-brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
+            <IconActivity size={17} style={{ color: '#fff' }} />
+          </div>
+          <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 18, letterSpacing: '-0.02em' }}>NSE Tracker</span>
         </div>
+
+        <button type="button" className="palette-trigger" onClick={() => setPaletteOpen(true)}>
+          <IconSearch size={15} />
+          <span style={{ flex: 1 }}>Search</span>
+          <kbd>⌘K</kbd>
+        </button>
 
         <nav aria-label="Main">
           {NAV_ITEMS.map((item) => (
@@ -102,18 +128,12 @@ export function AppShell() {
               // Below 900px the sidebar is an overlay, so navigating has to
               // close it -- otherwise it covers the page just asked for.
               onClick={() => setNavOpen(false)}
-              style={({ isActive }) => ({
-                display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', border: 'none',
-                background: isActive ? 'var(--color-accent-100)' : 'none', cursor: 'pointer', padding: '9px 10px', marginBottom: 2,
-                fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap', textDecoration: 'none',
-                transition: 'background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out)',
-                color: isActive ? 'var(--color-accent-900)' : 'var(--color-neutral-700)',
-              })}
+              className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
             >
               {item.icon}
               {item.label}
               {item.to === '/alerts' && unseenAlerts > 0 && (
-                <span style={{ marginLeft: 'auto', background: 'var(--color-brand)', color: '#fff', fontSize: 11, fontWeight: 600, padding: '1px 7px', minWidth: 18, textAlign: 'center' }}>
+                <span className="nav-badge">
                   {unseenAlerts}
                   <span className="sr-only"> unseen</span>
                 </span>
@@ -123,7 +143,21 @@ export function AppShell() {
         </nav>
 
         <div style={{ flex: 1 }} />
-        <div style={{ padding: 8, fontSize: 11, color: 'var(--color-neutral-700)', lineHeight: 1.5 }}>
+
+        <FreshnessBox />
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 4px 2px' }}>
+          <div style={{ width: 32, height: 32, borderRadius: 999, background: 'var(--color-surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600, color: 'var(--color-accent-800)', flex: 'none' }}>
+            {initials(user?.name ?? '')}
+          </div>
+          <div className="user-name" style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {user?.name}
+          </div>
+          <button type="button" onClick={logout} className="btn btn-ghost btn-icon" aria-label="Log out">
+            <IconLogout size={15} />
+          </button>
+        </div>
+        <div style={{ padding: '8px 4px 0', fontSize: 11, color: 'var(--color-neutral-600)', lineHeight: 1.5 }}>
           Internal tracking tool — for informational purposes only.
           <br />
           Not investment advice. No trading or order placement.
@@ -147,15 +181,6 @@ export function AppShell() {
               {header.subtitle && <div className="page-subtitle" style={{ fontSize: 12.5, color: 'var(--color-neutral-600)', marginTop: 2 }}>{header.subtitle}</div>}
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <FreshnessBox />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'var(--color-neutral-600)' }}>
-              <span className="user-name">{user?.name}</span>
-              <button type="button" onClick={logout} className="btn btn-ghost" style={{ fontSize: 12.5, padding: '2px 6px' }}>
-                Log out
-              </button>
-            </div>
-          </div>
         </header>
         <main className="app-main">
           {/* Keyed on the route: a crash on one page shouldn't leave the error
@@ -165,6 +190,8 @@ export function AppShell() {
           </ErrorBoundary>
         </main>
       </div>
+
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} pages={NAV_ITEMS.map(({ to, label }) => ({ to, label }))} />
     </div>
   )
 }

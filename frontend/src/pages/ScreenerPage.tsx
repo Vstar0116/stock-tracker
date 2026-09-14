@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { Corners } from '../components/Blueprint'
 import { EmptyState } from '../components/EmptyState'
 import { RuleGroup } from '../components/RuleGroup'
 import { apiFetch, ApiError } from '../lib/api'
@@ -10,31 +9,11 @@ import { usePageHeader } from '../lib/pageHeader'
 import { SortableTh, useSortableRows } from '../lib/sort'
 import { applyRuleAction, collectFields, FIELD_LABELS, FUNDAMENTAL_FIELD_NAMES, screenRuleToUiTree, uiTreeToScreenRule } from '../lib/ruleTree'
 import type { RuleAction } from '../lib/ruleTree'
+import { TEMPLATES } from '../lib/screenTemplates'
+import type { ScreenTemplate } from '../lib/screenTemplates'
 import { useToast } from '../lib/toast'
 import { useFetch } from '../lib/useFetch'
-import type { Page, ScreenMatchOut, ScreenOut, ScreenRule, UiRuleGroup, WatchlistOut } from '../lib/types'
-
-interface Template {
-  id: string
-  name: string
-  description: string
-  root: UiRuleGroup
-}
-
-const TEMPLATES: Template[] = [
-  {
-    id: 'above-200dma', name: 'Above 200 DMA', description: 'Close above the 200-day moving average',
-    root: { type: 'group', op: 'AND', children: [{ type: 'rule', field: 'close', operator: '>', value: 'sma_200' }] },
-  },
-  {
-    id: 'golden-cross', name: 'Golden Cross', description: 'SMA 50 just crossed above SMA 200',
-    root: { type: 'group', op: 'AND', children: [{ type: 'rule', field: 'sma_50', operator: 'crossed above', value: 'sma_200' }] },
-  },
-  {
-    id: 'volume-breakout', name: 'Volume Breakout x3', description: 'Volume at least 3x its 20-day average',
-    root: { type: 'group', op: 'AND', children: [{ type: 'rule', field: 'volume', operator: '>', value: '3 x volume_sma_20' }] },
-  },
-]
+import type { BacktestResponse, Page, ScreenMatchOut, ScreenOut, ScreenRule, UiRuleGroup, WatchlistOut } from '../lib/types'
 
 export function ScreenerPage() {
   usePageHeader('Screener', 'Build a rule, preview matches, save it to run again')
@@ -48,6 +27,10 @@ export function ScreenerPage() {
   const [results, setResults] = useState<ScreenMatchOut[] | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
+
+  const [backtestResult, setBacktestResult] = useState<BacktestResponse | null>(null)
+  const [backtestLoading, setBacktestLoading] = useState(false)
+  const [backtestError, setBacktestError] = useState<string | null>(null)
 
   const [nlText, setNlText] = useState('')
   const [nlLoading, setNlLoading] = useState(false)
@@ -96,6 +79,10 @@ export function ScreenerPage() {
   )
 
   useEffect(() => {
+    // A stale backtest for the rule the user just edited away from is worse
+    // than no backtest -- clear it whenever the rule changes, same as preview.
+    setBacktestResult(null)
+    setBacktestError(null)
     if (!definition) {
       setResults(null)
       setPreviewError(null)
@@ -136,7 +123,7 @@ export function ScreenerPage() {
     toast('Restored your previous rule')
   }
 
-  function loadTemplate(tpl: Template) {
+  function loadTemplate(tpl: ScreenTemplate) {
     setRoot(JSON.parse(JSON.stringify(tpl.root)))
     setName(tpl.name)
     setActiveTemplateId(tpl.id)
@@ -156,6 +143,21 @@ export function ScreenerPage() {
       toast(err instanceof ApiError ? err.message : 'failed to save screen')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function runBacktest() {
+    if (!definition || backtestLoading) return
+    setBacktestLoading(true)
+    setBacktestError(null)
+    try {
+      const res = await apiFetch<BacktestResponse>('/api/screens/backtest', { method: 'POST', body: JSON.stringify({ definition }) })
+      setBacktestResult(res)
+    } catch (err) {
+      setBacktestResult(null)
+      setBacktestError(err instanceof ApiError ? err.message : 'backtest failed')
+    } finally {
+      setBacktestLoading(false)
     }
   }
 
@@ -211,19 +213,26 @@ export function ScreenerPage() {
   return (
     <div style={{ maxWidth: 980 }}>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 }}>
-        {TEMPLATES.map((tpl) => (
-          <button
-            key={tpl.id}
-            type="button"
-            className={tpl.id === activeTemplateId ? 'btn btn-primary blueprint' : 'btn btn-secondary'}
-            onClick={() => loadTemplate(tpl)}
-            style={{ textAlign: 'left', maxWidth: 260 }}
-          >
-            {tpl.id === activeTemplateId && <Corners />}
-            <span style={{ display: 'block', fontWeight: 600, whiteSpace: 'nowrap' }}>{tpl.name}</span>
-            <span style={{ display: 'block', fontSize: 11.5, fontWeight: 400, opacity: 0.75, marginTop: 2 }}>{tpl.description}</span>
-          </button>
-        ))}
+        {TEMPLATES.map((tpl) => {
+          const isActive = tpl.id === activeTemplateId
+          return (
+            <button
+              key={tpl.id}
+              type="button"
+              onClick={() => loadTemplate(tpl)}
+              style={{
+                textAlign: 'left', maxWidth: 260, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', whiteSpace: 'normal',
+                cursor: 'pointer', borderRadius: 18, padding: '14px 18px',
+                background: isActive ? 'var(--color-accent-100)' : 'var(--color-surface)',
+                border: `1px solid ${isActive ? 'var(--color-accent-500)' : 'transparent'}`,
+                color: 'var(--color-text)', fontFamily: 'var(--font-body)',
+              }}
+            >
+              <span style={{ display: 'block', fontWeight: 600, fontSize: 14.5 }}>{tpl.name}</span>
+              <span style={{ display: 'block', fontSize: 12.5, color: 'var(--color-neutral-600)', marginTop: 2 }}>{tpl.description}</span>
+            </button>
+          )
+        })}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
@@ -231,8 +240,7 @@ export function ScreenerPage() {
           <span className="field-label">Screen name</span>
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
         </label>
-        <button type="button" className="btn btn-primary blueprint" onClick={saveScreen} disabled={saving} style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
-          <Corners />
+        <button type="button" className="btn btn-primary" onClick={saveScreen} disabled={saving} style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
           Save screen
         </button>
       </div>
@@ -257,8 +265,7 @@ export function ScreenerPage() {
         )}
       </form>
 
-      <div className="card blueprint" style={{ padding: 16, marginBottom: 22 }}>
-        <Corners />
+      <div className="card" style={{ padding: '20px 22px', marginBottom: 22 }}>
         <div className="card-kicker" style={{ marginBottom: 10 }}>Rule builder</div>
         <RuleGroup group={root} path={[]} onMutate={mutate} depth={0} />
       </div>
@@ -305,7 +312,7 @@ export function ScreenerPage() {
               return (
                 <tr key={m.instrument_id}>
                   <td><Link to={`/stocks/${m.instrument_id}`} state={{ from: '/screener', fromLabel: 'Screener results' }}><strong>{m.symbol}</strong></Link></td>
-                  <td>{m.sector ? <span className="tag tag-outline" style={{ whiteSpace: 'nowrap' }}>{m.sector}</span> : <span className="text-muted">—</span>}</td>
+                  <td>{m.sector ? <span className="tag tag-neutral" style={{ whiteSpace: 'nowrap' }}>{m.sector}</span> : <span className="text-muted">—</span>}</td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtPrice(m.close)}</td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: chg.color }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
@@ -340,6 +347,45 @@ export function ScreenerPage() {
           title="No stocks currently match this rule."
           hint="Loosen a condition, or switch the group from AND to OR to widen the net."
         />
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 28, marginBottom: 8, gap: 12, flexWrap: 'wrap' }}>
+        <h5 style={{ margin: 0 }}>Backtest</h5>
+        <button type="button" className="btn btn-secondary" onClick={runBacktest} disabled={!definition || backtestLoading} style={{ whiteSpace: 'nowrap' }}>
+          {backtestLoading ? 'Running…' : 'Backtest last 250 trading days'}
+        </button>
+      </div>
+      <p className="text-muted" style={{ fontSize: 12.5, margin: '0 0 12px', maxWidth: 640 }}>
+        How this rule's matches actually performed historically -- a record of the past, not a prediction or a recommendation.
+      </p>
+      {backtestError && <ErrorText>{backtestError}</ErrorText>}
+      {backtestResult && backtestResult.total_matches === 0 && (
+        <EmptyState title="No historical matches for this rule." hint="It never fired in the lookback window -- try loosening a condition." />
+      )}
+      {backtestResult && backtestResult.total_matches > 0 && (
+        <>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+            {backtestResult.horizons.map((h) => (
+              <div key={h.horizon_days} className="card" style={{ padding: '14px 18px', minWidth: 160 }}>
+                <div className="card-kicker" style={{ marginBottom: 6 }}>{h.horizon_days}-day forward</div>
+                {h.sample_size === 0 || h.avg_return_pct === null ? (
+                  <div className="text-muted" style={{ fontSize: 13 }}>not enough data yet</div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: h.avg_return_pct >= 0 ? 'var(--color-pos-text)' : 'var(--color-neg-text)' }}>
+                      {fmtPct(h.avg_return_pct)}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: 'var(--color-neutral-600)' }}>avg return &middot; {h.sample_size} matches</div>
+                    <div style={{ fontSize: 12.5, color: 'var(--color-neutral-600)' }}>{h.hit_rate_pct?.toFixed(0)}% positive &middot; median {fmtPct(h.median_return_pct)}</div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="text-muted" style={{ fontSize: 12, marginTop: 0 }}>
+            {backtestResult.total_matches} matches across {backtestResult.dates_evaluated} trading days evaluated, through {backtestResult.as_of}.
+          </p>
+        </>
       )}
 
       {screensError && <ErrorText style={{ marginTop: 32 }}>Couldn't load saved screens: {screensError}</ErrorText>}
@@ -393,28 +439,28 @@ function SavedScreensList({ screens, onChanged }: { screens: ScreenOut[]; onChan
   }
 
   return (
-    <ul style={{ listStyle: 'none', margin: 0, padding: 0, border: '1px solid var(--color-divider)' }}>
+    <div>
       {screens.map((s) => (
-        <li key={s.id} style={{ padding: '10px 14px', borderBottom: '1px solid var(--color-divider)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span>
-              <span className="tag tag-neutral">{s.name}</span>
-              {!s.is_active && <span className="text-muted" style={{ fontSize: 11, marginLeft: 8 }}>inactive</span>}
+        <div key={s.id} style={{ background: 'var(--color-surface)', borderRadius: 18, padding: '14px 20px', marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 15, fontWeight: 600 }}>{s.name}</span>
+              {!s.is_active && <span className="tag tag-neutral" style={{ fontWeight: 600 }}>inactive</span>}
             </span>
-            <div style={{ display: 'flex', gap: 12, fontSize: 12.5 }}>
-              <button type="button" className="btn btn-ghost" style={{ fontSize: 12.5, padding: 0 }} onClick={() => run(s)} disabled={runningId === s.id}>
+            <div style={{ display: 'flex', gap: 14, fontSize: 13.5 }}>
+              <button type="button" className="btn btn-ghost" style={{ fontSize: 13.5, padding: 0 }} onClick={() => run(s)} disabled={runningId === s.id}>
                 {runningId === s.id ? 'Running…' : 'Run now'}
               </button>
-              <button type="button" className="btn btn-ghost" style={{ fontSize: 12.5, padding: 0 }} onClick={() => toggleActive(s)}>
+              <button type="button" className="btn btn-ghost" style={{ fontSize: 13.5, padding: 0 }} onClick={() => toggleActive(s)}>
                 {s.is_active ? 'Deactivate' : 'Activate'}
               </button>
-              <button type="button" className="btn btn-ghost" style={{ fontSize: 12.5, padding: 0, color: 'var(--color-neg-text)' }} onClick={() => remove(s)}>
+              <button type="button" className="btn btn-ghost" style={{ fontSize: 13.5, padding: 0, color: 'var(--color-neg-text)' }} onClick={() => remove(s)}>
                 Delete
               </button>
             </div>
           </div>
           {matches[s.id] && (
-            <div style={{ marginTop: 8, fontSize: 13 }}>
+            <div style={{ marginTop: 10, fontSize: 13 }}>
               {matches[s.id].length === 0 ? (
                 <span className="text-muted">No matches as of the latest trading day.</span>
               ) : (
@@ -428,8 +474,8 @@ function SavedScreensList({ screens, onChanged }: { screens: ScreenOut[]; onChan
               )}
             </div>
           )}
-        </li>
+        </div>
       ))}
-    </ul>
+    </div>
   )
 }

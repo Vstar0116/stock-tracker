@@ -17,28 +17,33 @@ from __future__ import annotations
 
 import io
 import re
+from dataclasses import fields
 
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
-# Mirrors app/services/zone_classifier.py::ZoneParams field names exactly,
-# so a caller can merge `found` straight into the params dict/form state.
-ZONE_PARAM_FIELDS = [
-    "macro_sma_period",
-    "fast_ema_period",
-    "slow_ema_period",
-    "rsi_period",
-    "rsi_zone_a_max",
-    "rsi_zone_b_low",
-    "rsi_zone_b_high",
-    "rsi_zone_c_low",
-    "rsi_zone_c_high",
-    "rsi_zone_d_min",
-    "atr_period",
-    "atr_limit_multiplier",
-    "rvol_period",
-    "near_ema_pct",
-]
+from app.services.zone_classifier import ZoneParams
+
+
+def _flat_zone_param_fields() -> list[str]:
+    """Derives the flat field-name list from ZoneParams itself (app/services/
+    zone_classifier.py) instead of hardcoding a second copy that can drift:
+    each `_range` tuple field expands to its `_low`/`_high` names, matching
+    the flat query-param shape app/api/zone.py's _params_from_query/
+    _params_out already convert to/from ZoneParams' tuple fields. A caller
+    can merge `found` straight into that same flat param dict/form state."""
+    names = []
+    for f in fields(ZoneParams):
+        if f.name.endswith("_range"):
+            base = f.name.removesuffix("_range")
+            names.append(f"{base}_low")
+            names.append(f"{base}_high")
+        else:
+            names.append(f.name)
+    return names
+
+
+ZONE_PARAM_FIELDS = _flat_zone_param_fields()
 
 
 def extract_pdf_text(data: bytes, max_pages: int = 15) -> str:

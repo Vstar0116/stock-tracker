@@ -102,6 +102,12 @@ class TestBuildPortfolio:
 
         out = portfolio_service.build_portfolio(db, user_id)
 
+        # No price data yet -- the per-row valuation stays unknown, but the
+        # holding still counts toward the portfolio total at cost basis
+        # (flat, zero assumed unrealized P&L) rather than vanishing from it.
         assert out.holdings[0].close is None
         assert out.holdings[0].market_value is None
-        assert out.total_market_value == pytest.approx(0.0)
+        assert out.holdings[0].unrealized_pnl is None
+        assert out.total_cost_basis == pytest.approx(60.0)
+        assert out.total_market_value == pytest.approx(60.0)
+        assert out.total_unrealized_pnl == pytest.approx(0.0)

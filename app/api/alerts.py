@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app.api.deps import Pagination, get_current_user, pagination
+from app.api.deps import Pagination, get_current_user, owned_screen_clause, pagination
 from app.db.session import get_db
 from app.models import Alert, Instrument, Screen, User
 from app.schemas.alert import AlertOut, AlertsMarkSeenRequest, AlertsMarkSeenResponse
@@ -37,10 +37,10 @@ def list_alerts(
     current_user: User = Depends(get_current_user),
     page: Pagination = Depends(pagination),
 ) -> Page[AlertOut]:
-    # ownership is a WHERE-clause condition (Screen.user_id), same as the
-    # rest of the API -- an alert on someone else's screen is filtered out at
-    # the SQL level, not fetched and then checked.
-    conditions = [Screen.user_id == current_user.id]
+    # ownership is a WHERE-clause condition, same as the rest of the API --
+    # an alert on someone else's screen is filtered out at the SQL level,
+    # not fetched and then checked.
+    conditions = [owned_screen_clause(current_user.id)]
     if trade_date is not None:
         conditions.append(Alert.trade_date == trade_date)
     if screen_id is not None:
@@ -74,7 +74,7 @@ def mark_seen(
         select(Alert, Screen.name, Instrument.symbol, Instrument.exchange)
         .join(Screen, Screen.id == Alert.screen_id)
         .join(Instrument, Instrument.id == Alert.instrument_id)
-        .where(Alert.id == alert_id, Screen.user_id == current_user.id)
+        .where(Alert.id == alert_id, owned_screen_clause(current_user.id))
     ).first()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "alert not found")
@@ -100,7 +100,7 @@ def mark_many_seen(
         return AlertsMarkSeenResponse(updated=0)
     result = db.execute(
         update(Alert)
-        .where(Alert.id.in_(payload.ids), Alert.screen_id.in_(select(Screen.id).where(Screen.user_id == current_user.id)))
+        .where(Alert.id.in_(payload.ids), Alert.screen_id.in_(select(Screen.id).where(owned_screen_clause(current_user.id))))
         .values(seen=True)
     )
     db.commit()

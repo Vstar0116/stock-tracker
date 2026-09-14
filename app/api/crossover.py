@@ -37,7 +37,7 @@ router = APIRouter(prefix="/api", tags=["crossover"], dependencies=[Depends(get_
 # real interactive use: the scans are button-triggered in CustomScanPage,
 # not re-run as the user types.
 scan_limiter = RateLimiter(
-    key_prefix="scan:user",
+    key_prefix="crossover:scan:user",
     max_requests=30,
     window_seconds=3600,
     message="scan rate limit reached (30/hour) -- results are cached per trading day, so re-running the same scan is free",

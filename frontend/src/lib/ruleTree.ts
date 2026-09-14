@@ -4,7 +4,7 @@ import type { Operand, ScreenRule, UiRuleGroup, UiRuleLeaf, UiRuleNode } from '.
 // that isn't here can't be screened on server-side either.
 export const NUMERIC_FIELDS = [
   'close', 'open', 'high', 'low', 'volume',
-  'sma_20', 'sma_50', 'sma_100', 'sma_200', 'ema_20', 'ema_50',
+  'sma_20', 'sma_50', 'sma_100', 'sma_200', 'ema_20', 'ema_21', 'ema_50',
   'rsi_14', 'macd', 'macd_signal', 'macd_histogram', 'atr_14', 'volume_sma_20', 'high_52w', 'low_52w',
   'pe', 'pb', 'roce', 'debt_to_equity', 'market_cap',
 ]
@@ -23,14 +23,14 @@ export const CATEGORICAL_FIELDS = ['sector', 'industry', 'exchange', 'series']
 export const ALL_FIELDS = [...NUMERIC_FIELDS, ...CATEGORICAL_FIELDS]
 export const CROSSABLE_FIELDS = new Set([
   'close', 'open', 'high', 'low', 'volume',
-  'sma_20', 'sma_50', 'sma_100', 'sma_200', 'ema_20', 'ema_50',
+  'sma_20', 'sma_50', 'sma_100', 'sma_200', 'ema_20', 'ema_21', 'ema_50',
   'rsi_14', 'macd', 'macd_signal', 'macd_histogram', 'atr_14', 'volume_sma_20', 'high_52w', 'low_52w',
 ])
 
 export const FIELD_LABELS: Record<string, string> = {
   close: 'Close', open: 'Open', high: 'High', low: 'Low', volume: 'Volume',
   sma_20: 'SMA 20', sma_50: 'SMA 50', sma_100: 'SMA 100', sma_200: 'SMA 200',
-  ema_20: 'EMA 20', ema_50: 'EMA 50', rsi_14: 'RSI 14', macd: 'MACD',
+  ema_20: 'EMA 20', ema_21: 'EMA 21', ema_50: 'EMA 50', rsi_14: 'RSI 14', macd: 'MACD',
   macd_signal: 'MACD Signal', macd_histogram: 'MACD Hist', atr_14: 'ATR 14',
   volume_sma_20: 'Vol SMA 20', high_52w: '52W High', low_52w: '52W Low',
   pe: 'P/E', pb: 'P/B', roce: 'ROCE', debt_to_equity: 'Debt/Equity', market_cap: 'Mkt Cap',

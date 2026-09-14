@@ -80,32 +80,45 @@ def run(now: datetime | None = None) -> None:
     job_runs rows already exist in the shared dev database."""
     now = now or datetime.now(timezone.utc)
     db = SessionLocal()
-    try:
-        _check_stale(
-            db, now, PIPELINE_JOB_NAME, STALE_AFTER,
+    checks = (
+        (
+            PIPELINE_JOB_NAME, STALE_AFTER,
             f"daily_pipeline has not run in over {int(STALE_AFTER.total_seconds() // 3600)} hours",
             "Check: systemctl status stock-daily-pipeline.timer\n"
             "Check: python -m app.jobs.daily_pipeline status",
-        )
-        _check_stale(
-            db, now, FUNDAMENTALS_JOB_NAME, MANUAL_DATA_STALE_AFTER,
+        ),
+        (
+            FUNDAMENTALS_JOB_NAME, MANUAL_DATA_STALE_AFTER,
             f"BS-GARP fundamentals haven't been refreshed in over {MANUAL_DATA_STALE_AFTER.days} days",
             "Re-run with updated screener.in figures: python -m app.jobs.seed_bsgarp_fundamentals",
-        )
-        _check_stale(
-            db, now, SECTOR_JOB_NAME, MANUAL_DATA_STALE_AFTER,
+        ),
+        (
+            SECTOR_JOB_NAME, MANUAL_DATA_STALE_AFTER,
             f"Market-wide industry classification hasn't been refreshed in over {MANUAL_DATA_STALE_AFTER.days} days",
             "Re-run: python -m app.jobs.ingest_sector_classification",
-        )
-    except OperationalError as exc:
-        alerting.send_alert(
-            "healthcheck: database connection failed",
-            f"Time: {now.isoformat()}\n"
-            f"Could not connect to the database while checking pipeline health.\n\n"
-            f"Error: {exc}",
-            fingerprint="healthcheck:db_connection_failed",
-        )
-        logger.error("healthcheck: database connection failed: %s", exc)
+        ),
+    )
+    # A DB outage fails every check identically -- alert once for that (same
+    # as before this function isolated the checks), not once per check. Each
+    # check is still attempted independently, so a failure isolated to one
+    # check's query (rather than a full outage) doesn't stop the others from
+    # running and reporting genuine staleness.
+    db_error_alerted = False
+    try:
+        for job_name, threshold, subject, remediation in checks:
+            try:
+                _check_stale(db, now, job_name, threshold, subject, remediation)
+            except OperationalError as exc:
+                logger.error("healthcheck: database connection failed while checking %s: %s", job_name, exc)
+                if not db_error_alerted:
+                    alerting.send_alert(
+                        "healthcheck: database connection failed",
+                        f"Time: {now.isoformat()}\n"
+                        f"Could not connect to the database while checking pipeline health.\n\n"
+                        f"Error: {exc}",
+                        fingerprint="healthcheck:db_connection_failed",
+                    )
+                    db_error_alerted = True
     finally:
         db.close()
 

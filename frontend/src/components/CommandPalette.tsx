@@ -81,7 +81,7 @@ export function CommandPalette({
 
     const screenEntries: PaletteEntry[] = screens
       .filter((s) => s.name.toLowerCase().includes(q))
-      .map((s) => ({ key: `screen:${s.id}`, title: s.name, meta: 'Saved screen', go: () => navigate('/screener') }))
+      .map((s) => ({ key: `screen:${s.id}`, title: s.name, meta: 'Saved screen', go: () => navigate(`/screener?screen=${s.id}`) }))
 
     return [
       { label: 'Pages', items: pageEntries },

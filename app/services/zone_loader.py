@@ -107,6 +107,10 @@ class ScanResult:
     evaluated: int
     cached: bool
     elapsed_ms: int
+    # Instrument ids requested via instrument_ids that are in neither matches
+    # nor skipped -- i.e. not part of the active-market universe at all
+    # (inactive/delisted). Empty for an unscoped (whole-market) scan.
+    dropped: list[int] = dataclasses.field(default_factory=list)
 
 
 def _connect():
@@ -249,4 +253,8 @@ def run_zone_scan(db: Session, params: ZoneParams, instrument_ids: frozenset[int
 
     matches = [m for m in result.matches if m.instrument_id in instrument_ids]
     skipped = [s for s in result.skipped if s["instrument_id"] in instrument_ids]
-    return dataclasses.replace(result, matches=matches, skipped=skipped, evaluated=len(matches) + len(skipped))
+    accounted_ids = {m.instrument_id for m in matches} | {s["instrument_id"] for s in skipped}
+    dropped = sorted(instrument_ids - accounted_ids)
+    return dataclasses.replace(
+        result, matches=matches, skipped=skipped, dropped=dropped, evaluated=len(matches) + len(skipped)
+    )

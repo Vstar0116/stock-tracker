@@ -46,6 +46,16 @@ nl_screen_daily_limiter = RateLimiter(
     message="daily limit for AI-generated screens reached (40/day) -- try again tomorrow, or build the rule manually below",
 )
 
+# Backtest reruns compile_screen once per evaluated trading day (up to
+# MAX_LOOKBACK_DAYS), each a whole-market query -- comparable cost to the
+# scan endpoints that are already rate-limited, so this needs the same guard.
+backtest_limiter = RateLimiter(
+    key_prefix="backtest:user",
+    max_requests=30,
+    window_seconds=3600,
+    message="backtest rate limit reached (30/hour)",
+)
+
 
 def _snapshot(row) -> dict:
     # Categorical fields (sector/industry/series) can appear here via an
@@ -184,8 +194,9 @@ def preview_screen(
 def backtest_screen(
     payload: BacktestRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),  # unused -- enforces auth like every other route here
+    current_user: User = Depends(get_current_user),
 ) -> BacktestResponse:
+    backtest_limiter.check(str(current_user.id))
     result = run_backtest(db, payload.definition, payload.lookback_days)
     return BacktestResponse(
         as_of=result.as_of,

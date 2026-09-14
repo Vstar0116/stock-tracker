@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { EmptyState } from '../components/EmptyState'
 import { RuleGroup } from '../components/RuleGroup'
 import { apiFetch, ApiError } from '../lib/api'
@@ -18,6 +18,13 @@ import type { BacktestResponse, Page, ScreenMatchOut, ScreenOut, ScreenRule, UiR
 export function ScreenerPage() {
   usePageHeader('Screener', 'Build a rule, preview matches, save it to run again')
   const toast = useToast()
+  // Set by the command palette (?screen=:id) so clicking a saved screen
+  // there scrolls straight to it instead of landing on a bare screener page.
+  const [searchParams] = useSearchParams()
+  const highlightScreenId = useMemo(() => {
+    const raw = searchParams.get('screen')
+    return raw ? Number(raw) : null
+  }, [searchParams])
 
   const [root, setRoot] = useState<UiRuleGroup>(TEMPLATES[0].root)
   const [name, setName] = useState(TEMPLATES[0].name)
@@ -392,17 +399,30 @@ export function ScreenerPage() {
       {!screensError && screens && screens.items.length > 0 && (
         <div style={{ marginTop: 32 }}>
           <h5 style={{ margin: '0 0 8px' }}>Saved screens</h5>
-          <SavedScreensList screens={screens.items} onChanged={reloadScreens} />
+          <SavedScreensList screens={screens.items} onChanged={reloadScreens} highlightId={highlightScreenId} />
         </div>
       )}
     </div>
   )
 }
 
-function SavedScreensList({ screens, onChanged }: { screens: ScreenOut[]; onChanged: () => void }) {
+function SavedScreensList({
+  screens,
+  onChanged,
+  highlightId,
+}: {
+  screens: ScreenOut[]
+  onChanged: () => void
+  highlightId?: number | null
+}) {
   const toast = useToast()
   const [runningId, setRunningId] = useState<number | null>(null)
   const [matches, setMatches] = useState<Record<number, ScreenMatchOut[]>>({})
+  const highlightRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (highlightId != null) highlightRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [highlightId])
 
   // Each of these used to let a rejection escape unhandled: the row simply
   // stopped responding and the user was never told why.
@@ -441,7 +461,14 @@ function SavedScreensList({ screens, onChanged }: { screens: ScreenOut[]; onChan
   return (
     <div>
       {screens.map((s) => (
-        <div key={s.id} style={{ background: 'var(--color-surface)', borderRadius: 18, padding: '14px 20px', marginBottom: 10 }}>
+        <div
+          key={s.id}
+          ref={s.id === highlightId ? highlightRef : undefined}
+          style={{
+            background: 'var(--color-surface)', borderRadius: 18, padding: '14px 20px', marginBottom: 10,
+            outline: s.id === highlightId ? '2px solid var(--color-accent-500)' : undefined,
+          }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', justifyContent: 'space-between' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 15, fontWeight: 600 }}>{s.name}</span>

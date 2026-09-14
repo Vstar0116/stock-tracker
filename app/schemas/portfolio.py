@@ -1,12 +1,13 @@
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
 
 class HoldingCreate(BaseModel):
     instrument_id: int
-    quantity: float = Field(gt=0)
-    avg_cost: float = Field(gt=0)
+    quantity: Decimal = Field(gt=0)
+    avg_cost: Decimal = Field(gt=0)
 
 
 class HoldingRow(BaseModel):
@@ -16,25 +17,25 @@ class HoldingRow(BaseModel):
     exchange: str
     company_name: str
     sector: str | None
-    quantity: float
-    avg_cost: float
-    close: float | None
-    market_value: float | None
-    unrealized_pnl: float | None
+    quantity: Decimal
+    avg_cost: Decimal
+    close: Decimal | None
+    market_value: Decimal | None
+    unrealized_pnl: Decimal | None
     unrealized_pnl_pct: float | None
     added_at: datetime
 
 
 class SectorAllocationOut(BaseModel):
     sector: str
-    market_value: float
+    market_value: Decimal
     pct_of_portfolio: float
 
 
 class PortfolioOut(BaseModel):
-    total_market_value: float
-    total_cost_basis: float
-    total_unrealized_pnl: float
+    total_market_value: Decimal
+    total_cost_basis: Decimal
+    total_unrealized_pnl: Decimal
     total_unrealized_pnl_pct: float | None
     holdings: list[HoldingRow]
     allocation: list[SectorAllocationOut]

@@ -45,6 +45,9 @@ class ZoneScanResponse(BaseModel):
     params: ZoneParamsOut
     matches: list[ZoneOut]
     skipped: list[SkippedOut]
+    # Watchlist instruments that are outside the active-market universe
+    # (e.g. delisted/inactive) -- present in neither matches nor skipped.
+    dropped: list[int]
     evaluated: int
     cached: bool
     elapsed_ms: int

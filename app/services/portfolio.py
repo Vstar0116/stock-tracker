@@ -7,6 +7,7 @@ sector allocation breakdown.
 from __future__ import annotations
 
 from collections import defaultdict
+from decimal import Decimal
 
 from sqlalchemy import select, true
 from sqlalchemy.orm import Session
@@ -46,22 +47,28 @@ def build_portfolio(db: Session, user_id: int) -> PortfolioOut:
     )
 
     holdings: list[HoldingRow] = []
-    total_market_value = 0.0
-    total_cost_basis = 0.0
-    value_by_sector: dict[str, float] = defaultdict(float)
+    total_market_value = Decimal(0)
+    total_cost_basis = Decimal(0)
+    value_by_sector: dict[str, Decimal] = defaultdict(lambda: Decimal(0))
 
     for row in db.execute(stmt).all():
-        quantity, avg_cost = float(row.quantity), float(row.avg_cost)
-        close = float(row.close) if row.close is not None else None
+        quantity, avg_cost = row.quantity, row.avg_cost
+        close = row.close
         market_value = close * quantity if close is not None else None
         cost_basis = avg_cost * quantity
         unrealized_pnl = market_value - cost_basis if market_value is not None else None
-        unrealized_pnl_pct = (unrealized_pnl / cost_basis * 100) if unrealized_pnl is not None and cost_basis else None
+        unrealized_pnl_pct = float(unrealized_pnl / cost_basis * 100) if unrealized_pnl is not None and cost_basis else None
+
+        # No price data yet (delisted/manually-tracked instrument): treat the
+        # holding as flat (no unrealized gain/loss) in the totals rather than
+        # dropping it, so total_market_value doesn't undercount what was
+        # actually paid for it. Per-row market_value/unrealized_pnl stay None
+        # so the UI can still flag it as unpriced.
+        value_for_total = market_value if market_value is not None else cost_basis
 
         total_cost_basis += cost_basis
-        if market_value is not None:
-            total_market_value += market_value
-            value_by_sector[row.sector or UNSECTORED] += market_value
+        total_market_value += value_for_total
+        value_by_sector[row.sector or UNSECTORED] += value_for_total
 
         holdings.append(
             HoldingRow(
@@ -82,13 +89,13 @@ def build_portfolio(db: Session, user_id: int) -> PortfolioOut:
         )
 
     total_unrealized_pnl = total_market_value - total_cost_basis
-    total_unrealized_pnl_pct = (total_unrealized_pnl / total_cost_basis * 100) if total_cost_basis else None
+    total_unrealized_pnl_pct = float(total_unrealized_pnl / total_cost_basis * 100) if total_cost_basis else None
     allocation = sorted(
         (
             SectorAllocationOut(
                 sector=sector,
                 market_value=value,
-                pct_of_portfolio=(value / total_market_value * 100) if total_market_value else 0.0,
+                pct_of_portfolio=float(value / total_market_value * 100) if total_market_value else 0.0,
             )
             for sector, value in value_by_sector.items()
         ),

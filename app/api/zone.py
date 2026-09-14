@@ -7,9 +7,9 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_optional_owned_watchlist
 from app.db.session import get_db
-from app.models import User, Watchlist, WatchlistItem
+from app.models import User, WatchlistItem
 from app.rate_limit import RateLimiter
 from app.schemas.zone import SkippedOut, ZoneOut, ZoneParamsOut, ZoneProtocolParseResponse, ZoneScanResponse
 from app.services.protocol_parser import PdfReadError, extract_pdf_text, parse_protocol_text
@@ -34,7 +34,7 @@ router = APIRouter(prefix="/api/zone", tags=["zone"], dependencies=[Depends(get_
 # real interactive use: the scans are button-triggered in CustomScanPage,
 # not re-run as the user types.
 scan_limiter = RateLimiter(
-    key_prefix="scan:user",
+    key_prefix="zone:scan:user",
     max_requests=30,
     window_seconds=3600,
     message="scan rate limit reached (30/hour) -- results are cached per trading day, so re-running the same scan is free",
@@ -47,16 +47,13 @@ def _watchlist_instrument_ids(
     current_user: User = Depends(get_current_user),
 ) -> frozenset[int] | None:
     """None means "whole market" (the default, unscoped scan). When a
-    watchlist_id is given, ownership is enforced the same way as
-    get_owned_watchlist (app/api/deps.py) -- a watchlist owned by someone
-    else 404s exactly like a missing one, never leaking that it exists."""
-    if watchlist_id is None:
-        return None
-    watchlist = db.execute(
-        select(Watchlist).where(Watchlist.id == watchlist_id, Watchlist.user_id == current_user.id)
-    ).scalar_one_or_none()
+    watchlist_id is given, ownership is enforced via the same query
+    get_owned_watchlist uses (app/api/deps.py) -- a watchlist owned by
+    someone else 404s exactly like a missing one, never leaking that it
+    exists."""
+    watchlist = get_optional_owned_watchlist(watchlist_id, db, current_user)
     if watchlist is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "watchlist not found")
+        return None
     ids = db.execute(
         select(WatchlistItem.instrument_id).where(WatchlistItem.watchlist_id == watchlist.id)
     ).scalars().all()
@@ -125,6 +122,7 @@ def scan_zones(
         params=_params_out(params),
         matches=[_zone_out(m) for m in result.matches],
         skipped=[SkippedOut(**s) for s in result.skipped],
+        dropped=result.dropped,
         evaluated=result.evaluated,
         cached=result.cached,
         elapsed_ms=result.elapsed_ms,

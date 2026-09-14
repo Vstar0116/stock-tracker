@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { Corners } from '../components/Blueprint'
 import { useAuth } from '../lib/auth'
 import { ErrorText } from '../lib/format'
 
@@ -13,7 +12,7 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null)
 
   if (user) {
-    const from = (location.state as { from?: Location })?.from?.pathname ?? '/watchlists'
+    const from = (location.state as { from?: Location })?.from?.pathname ?? '/dashboard'
     return <Navigate to={from} replace />
   }
 
@@ -22,7 +21,7 @@ export function LoginPage() {
     setError(null)
     try {
       await login(email, password)
-      navigate('/watchlists', { replace: true })
+      navigate('/dashboard', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'login failed')
     }
@@ -30,8 +29,7 @@ export function LoginPage() {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--color-bg)' }}>
-      <form onSubmit={handleSubmit} className="card blueprint" style={{ width: '100%', maxWidth: 360, padding: 32 }}>
-        <Corners />
+      <form onSubmit={handleSubmit} className="card" style={{ width: '100%', maxWidth: 360, padding: 32 }}>
         <h1 style={{ margin: '0 0 22px', fontSize: 20 }}>NSE TRACKER</h1>
 
         {expired && !error && (
@@ -52,8 +50,7 @@ export function LoginPage() {
 
         {error && <ErrorText>{error}</ErrorText>}
 
-        <button type="submit" disabled={loading} className="btn btn-primary blueprint btn-block">
-          <Corners />
+        <button type="submit" disabled={loading} className="btn btn-primary btn-block">
           {loading ? 'Signing in…' : 'Sign in'}
         </button>
 

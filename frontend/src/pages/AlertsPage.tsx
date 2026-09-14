@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Corners } from '../components/Blueprint'
 import { apiFetch } from '../lib/api'
 import { ErrorText, FundamentalsAsOf } from '../lib/format'
 import { collectFields, FUNDAMENTAL_FIELD_NAMES, screenRuleToUiTree } from '../lib/ruleTree'
@@ -150,15 +149,13 @@ export function AlertsPage() {
       {alertsError && <ErrorText>Couldn't load alerts: {alertsError}</ErrorText>}
 
       {!alertsError && filtered.length === 0 && (
-        <div className="card blueprint" style={{ maxWidth: 520, padding: 30 }}>
-          <Corners />
+        <div className="card" style={{ maxWidth: 520, padding: 30 }}>
           <IconBell size={34} strokeWidth={1.3} stroke="var(--color-neutral-500)" style={{ marginBottom: 12 }} />
           <div className="card-title">No alerts match these filters</div>
           <p className="card-body">
             Alerts fire here automatically whenever a saved screen finds a new match. Try widening the filters above, or set up a new screen to start watching for something.
           </p>
-          <button type="button" className="btn btn-primary blueprint" onClick={() => navigate('/screener')} style={{ whiteSpace: 'nowrap', alignSelf: 'flex-start' }}>
-            <Corners />
+          <button type="button" className="btn btn-primary" onClick={() => navigate('/screener')} style={{ whiteSpace: 'nowrap', alignSelf: 'flex-start' }}>
             Go to Screener
           </button>
         </div>
@@ -171,29 +168,36 @@ export function AlertsPage() {
             <div
               key={a.id}
               style={{
-                display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 14px', marginBottom: 6,
-                border: '1px solid var(--color-neutral-300)', background: a.seen ? 'transparent' : 'var(--color-accent-100)',
+                display: 'flex', gap: 16, alignItems: 'flex-start', padding: '18px 20px', marginBottom: 10, borderRadius: 20,
+                background: a.seen ? 'var(--color-surface)' : 'var(--color-accent-100)',
+                border: `1px solid ${a.seen ? 'transparent' : 'var(--color-accent-300)'}`,
               }}
             >
-              <div style={{ width: 8, height: 8, marginTop: 6, flex: 'none', background: a.seen ? 'var(--color-neutral-300)' : 'var(--color-accent-600)' }} />
+              <div style={{
+                width: 42, height: 42, borderRadius: 14, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: a.seen ? 'var(--color-neutral-100)' : 'var(--color-accent-200)', color: a.seen ? 'var(--color-neutral-600)' : 'var(--color-accent-800)',
+              }}>
+                <IconBell size={18} />
+              </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 }}>
-                  <span className="tag tag-accent" style={{ whiteSpace: 'nowrap' }}>{a.screen_name}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 5 }}>
                   <Link to={`/stocks/${a.instrument_id}`} state={{ from: '/alerts', fromLabel: 'Alerts' }}>
-                    <strong>{a.symbol}</strong>
+                    <strong style={{ fontSize: 16 }}>{a.symbol}</strong>
                   </Link>
+                  <span className="tag tag-accent" style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{a.screen_name}</span>
                   <span style={{ color: 'var(--color-neutral-600)', fontSize: 12.5, whiteSpace: 'nowrap' }}>{a.exchange}</span>
+                  {!a.seen && <span style={{ fontSize: 12, color: 'var(--color-pos-text)', fontWeight: 600 }}>New</span>}
                   <FundamentalsAsOf
                     asOf={fundamentalsScreenIds.has(a.screen_id) && typeof a.snapshot.fundamentals_as_of === 'string' ? a.snapshot.fundamentals_as_of : undefined}
                   />
                 </div>
-                <div style={{ fontSize: 13.5, marginBottom: 3 }}>matched on {a.trade_date}</div>
-                <div style={{ fontSize: 12, color: 'var(--color-neutral-600)', fontVariantNumeric: 'tabular-nums' }}>{snapshotLine(a.snapshot)}</div>
+                <div style={{ fontSize: 14.5, color: 'var(--color-neutral-800)', marginBottom: 4 }}>matched on {a.trade_date}</div>
+                <div style={{ fontSize: 12.5, color: 'var(--color-neutral-600)', fontVariantNumeric: 'tabular-nums' }}>{snapshotLine(a.snapshot)}</div>
               </div>
               {a.seen ? (
-                <span style={{ fontSize: 11.5, color: 'var(--color-neutral-500)', whiteSpace: 'nowrap', paddingTop: 2 }}>Seen</span>
+                <span style={{ fontSize: 12.5, color: 'var(--color-neutral-600)', whiteSpace: 'nowrap', paddingTop: 9, flex: 'none' }}>Seen</span>
               ) : (
-                <button type="button" className="btn btn-secondary" onClick={() => markSeen(a.id)} style={{ whiteSpace: 'nowrap', flexShrink: 0, fontSize: 12, padding: '5px 11px', marginBottom: 0 }}>
+                <button type="button" className="btn btn-secondary" onClick={() => markSeen(a.id)} style={{ whiteSpace: 'nowrap', flexShrink: 0, fontSize: 13, padding: '8px 16px', marginBottom: 0 }}>
                   Mark seen
                 </button>
               )}

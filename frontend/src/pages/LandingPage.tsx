@@ -301,7 +301,7 @@ export function LandingPage() {
   const { user } = useAuth()
   const { data: snap, loading, error } = useFetch<MarketSnapshotOut>(user ? null : '/api/public/market-snapshot')
 
-  if (user) return <Navigate to="/watchlists" replace />
+  if (user) return <Navigate to="/dashboard" replace />
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--color-bg)' }}>

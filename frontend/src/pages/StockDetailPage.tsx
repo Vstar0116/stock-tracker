@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { Corners } from '../components/Blueprint'
 import { TradingViewChart, TV_STUDY_OPTIONS } from '../components/TradingViewChart'
 import { apiFetch, ApiError } from '../lib/api'
 import { changeVisual, ChangeGlyph, ErrorText, fmtNum, fmtPct, fmtPrice, indianNum } from '../lib/format'
@@ -49,8 +48,7 @@ interface IndicatorRow {
 
 function IndicatorCard({ kicker, rows }: { kicker: string; rows: IndicatorRow[] }) {
   return (
-    <div className="card blueprint" style={{ padding: 16 }}>
-      <Corners />
+    <div className="card" style={{ padding: '20px 22px' }}>
       <div className="card-kicker">{kicker}</div>
       {rows.map((it) => (
         <div key={it.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--color-neutral-200)', fontSize: 13 }}>
@@ -99,8 +97,7 @@ function CustomCrossoverCard({ instrumentId }: { instrumentId: number }) {
   const last = result?.points[result.points.length - 1] ?? null
 
   return (
-    <div className="card blueprint" style={{ padding: 16 }}>
-      <Corners />
+    <div className="card" style={{ padding: '20px 22px' }}>
       <div className="card-kicker">Custom crossover</div>
       <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', marginBottom: 10, flexWrap: 'wrap' }}>
         <label className="field" style={{ margin: 0 }}>
@@ -138,6 +135,63 @@ function CustomCrossoverCard({ instrumentId }: { instrumentId: number }) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/** Plain SVG line chart drawn from the price history the page already
+ *  fetches -- no charting dependency, matches the redesign's "native" chart
+ *  mode. Skips a moving-average overlay: the API only serves the latest
+ *  SMA/EMA values, not a per-day series, so there's nothing to draw a second
+ *  line from. Upgrade to TradingView's studies (already the "embed" mode)
+ *  covers that until a per-day indicator series exists. */
+function NativeChart({ prices }: { prices: PriceOut[] }) {
+  if (prices.length < 2) {
+    return (
+      <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-neutral-600)', fontSize: 13 }}>
+        Not enough price history to chart yet.
+      </div>
+    )
+  }
+  const W = 720
+  const H = 300
+  const PAD = 8
+  const closes = prices.map((p) => p.adjusted_close)
+  const min = Math.min(...closes)
+  const max = Math.max(...closes)
+  const span = max - min || 1
+  const x = (i: number) => (i / (prices.length - 1)) * W
+  const y = (v: number) => PAD + (1 - (v - min) / span) * (H - PAD * 2)
+  const linePath = closes.map((c, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${y(c).toFixed(1)}`).join(' ')
+  const areaPath = `${linePath} L ${x(prices.length - 1).toFixed(1)} ${H} L 0 ${H} Z`
+  const lastX = x(prices.length - 1)
+  const lastY = y(closes[closes.length - 1])
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" style={{ display: 'block', overflow: 'visible' }}>
+        <defs>
+          <linearGradient id="detailFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--color-brand)" stopOpacity={0.34} />
+            <stop offset="100%" stopColor="var(--color-brand)" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <g stroke="var(--color-divider)" strokeWidth={1}>
+          <line x1={0} y1={H * 0.2} x2={W} y2={H * 0.2} />
+          <line x1={0} y1={H * 0.43} x2={W} y2={H * 0.43} />
+          <line x1={0} y1={H * 0.67} x2={W} y2={H * 0.67} />
+          <line x1={0} y1={H * 0.9} x2={W} y2={H * 0.9} />
+        </g>
+        <path d={areaPath} fill="url(#detailFill)" />
+        <path d={linePath} fill="none" stroke="var(--color-accent-700)" strokeWidth={2.4} strokeLinejoin="round" strokeLinecap="round" />
+        <circle cx={lastX} cy={lastY} r={5} fill="var(--color-accent-700)" stroke="var(--color-surface)" strokeWidth={3} />
+      </svg>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap', marginTop: 16, fontSize: 12.5, color: 'var(--color-neutral-600)' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+          <span style={{ width: 16, height: 2.5, background: 'var(--color-accent-700)', display: 'block', borderRadius: 2 }} /> Close
+        </span>
+        <span style={{ marginLeft: 'auto' }}>{prices.length} sessions to {prices[prices.length - 1].trade_date} · adjusted for corporate actions</span>
+      </div>
     </div>
   )
 }
@@ -184,6 +238,12 @@ export function StockDetailPage() {
     writeStudyPref('chart-study-2', v)
   }
 
+  const [chartMode, setChartMode] = useState<'native' | 'embed'>(() => (readStudyPref('chart-mode') === 'embed' ? 'embed' : 'native'))
+  function updateChartMode(v: 'native' | 'embed') {
+    setChartMode(v)
+    writeStudyPref('chart-mode', v)
+  }
+
   // The prices endpoint always orders ascending with no "latest first" option,
   // and there can be years of history -- so ask for just the last ~2 months
   // by date (comfortably more than 30 trading days) instead of paginating
@@ -223,7 +283,7 @@ export function StockDetailPage() {
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap', marginBottom: 22 }}>
         <h2 style={{ margin: 0, fontSize: 25 }}>{instrument.symbol}</h2>
         <span style={{ color: 'var(--color-neutral-600)', fontSize: 15 }}>{instrument.company_name}</span>
-        {instrument.sector && <span className="tag tag-outline" style={{ whiteSpace: 'nowrap' }}>{instrument.sector}</span>}
+        {instrument.sector && <span className="tag tag-neutral" style={{ whiteSpace: 'nowrap' }}>{instrument.sector}</span>}
         <div style={{ flex: 1 }} />
         <span style={{ fontFamily: 'var(--font-heading)', fontSize: 28, fontWeight: 600 }}>{fmtPrice(instrument.latest_close)}</span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 15, fontWeight: 600, color: chg.color }}>
@@ -233,13 +293,39 @@ export function StockDetailPage() {
       </div>
 
       <div className="detail-grid">
-        <div className="card blueprint" style={{ padding: 16 }}>
-          <Corners />
-          <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-            <StudyPicker label="Indicator 1" value={study1} onChange={updateStudy1} otherValue={study2} />
-            <StudyPicker label="Indicator 2" value={study2} onChange={updateStudy2} otherValue={study1} />
+        <div className="card" style={{ padding: '20px 22px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
+            <div style={{ display: 'flex', background: 'var(--color-surface-2)', borderRadius: 999, padding: 4 }}>
+              {(['native', 'embed'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  aria-pressed={chartMode === m}
+                  onClick={() => updateChartMode(m)}
+                  style={{
+                    border: 'none', borderRadius: 999, fontSize: 13, fontWeight: 600, padding: '8px 16px', cursor: 'pointer',
+                    fontFamily: 'var(--font-body)',
+                    background: chartMode === m ? 'var(--color-brand)' : 'transparent',
+                    color: chartMode === m ? '#fff' : 'var(--color-neutral-600)',
+                  }}
+                >
+                  {m === 'native' ? 'Native chart' : 'TradingView'}
+                </button>
+              ))}
+            </div>
           </div>
-          <TradingViewChart symbol={instrument.tv_symbol} studies={[study1, study2].filter(Boolean)} />
+
+          {chartMode === 'native' ? (
+            <NativeChart prices={prices?.items ?? []} />
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                <StudyPicker label="Indicator 1" value={study1} onChange={updateStudy1} otherValue={study2} />
+                <StudyPicker label="Indicator 2" value={study2} onChange={updateStudy2} otherValue={study1} />
+              </div>
+              <TradingViewChart symbol={instrument.tv_symbol} studies={[study1, study2].filter(Boolean)} />
+            </>
+          )}
 
           <h3 className="section-label" style={{ margin: '20px 0 8px' }}>Recent price history</h3>
           <div className="table-scroll">

@@ -31,7 +31,7 @@ function FreshnessCard({ status }: { status: StatusDetailOut }) {
   const bg = ok ? 'var(--color-pos-bg)' : 'var(--color-warn-bg)'
   const text = ok ? 'var(--color-pos-text)' : 'var(--color-warn-text)'
   return (
-    <div style={{ border: `1px solid ${border}`, background: bg, color: text, padding: '16px 18px', marginBottom: 20 }}>
+    <div style={{ border: `1px solid ${border}`, borderRadius: 20, background: bg, color: text, padding: '18px 20px', marginBottom: 20 }}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
         {ok ? 'Data is current' : 'Data is stale'}
       </div>

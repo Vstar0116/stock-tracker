@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Corners } from '../components/Blueprint'
 import { apiFetch } from '../lib/api'
 import { downloadCsv } from '../lib/csv'
 import { changeVisual, ChangeGlyph, ErrorText, fmtPct, fmtPrice, trendVisual } from '../lib/format'
@@ -130,6 +129,9 @@ export function WatchlistsPage() {
   const [newName, setNewName] = useState('')
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [removing, setRemoving] = useState(false)
+  const [density, setDensity] = useState<'comfortable' | 'compact'>('comfortable')
+  const rowPad = density === 'compact' ? '6px 12px' : '12px 12px'
+  const rowFont = density === 'compact' ? 13.5 : 14
 
   const watchlists = list?.items ?? []
   useEffect(() => {
@@ -230,7 +232,7 @@ export function WatchlistsPage() {
               aria-current={isActive ? 'true' : undefined}
               style={{
                 padding: '6px 14px', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                border: `1px solid ${isActive ? 'var(--color-accent-600)' : 'var(--color-neutral-300)'}`,
+                borderRadius: 999, border: `1px solid ${isActive ? 'var(--color-accent-600)' : 'var(--color-neutral-300)'}`,
                 background: isActive ? 'var(--color-accent-100)' : 'transparent',
                 color: isActive ? 'var(--color-accent-900)' : 'var(--color-neutral-700)',
                 transition: 'background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out)',
@@ -247,8 +249,7 @@ export function WatchlistsPage() {
               <span className="sr-only">New watchlist name</span>
               <input className="input" autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="List name" style={{ width: 150, fontSize: 13, padding: '5px 8px', minHeight: 0 }} />
             </label>
-            <button type="submit" className="btn btn-primary blueprint" style={{ fontSize: 12, padding: '4px 10px' }}>
-              <Corners />
+            <button type="submit" className="btn btn-primary" style={{ fontSize: 12, padding: '4px 10px' }}>
               Add
             </button>
             <button type="button" className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => setCreating(false)}>Cancel</button>
@@ -259,8 +260,29 @@ export function WatchlistsPage() {
           </button>
         )}
 
+        <div style={{ flex: 1 }} />
+
+        <div style={{ display: 'flex', background: 'var(--color-surface)', borderRadius: 999, padding: 3, gap: 2 }}>
+          {(['comfortable', 'compact'] as const).map((d) => (
+            <button
+              key={d}
+              type="button"
+              aria-pressed={density === d}
+              onClick={() => setDensity(d)}
+              style={{
+                border: 'none', borderRadius: 999, fontSize: 12.5, fontWeight: 600, padding: '6px 13px', cursor: 'pointer',
+                fontFamily: 'var(--font-body)', textTransform: 'capitalize',
+                background: density === d ? 'var(--color-brand)' : 'transparent',
+                color: density === d ? '#fff' : 'var(--color-neutral-600)',
+              }}
+            >
+              {d}
+            </button>
+          ))}
+        </div>
+
         {active && (
-          <button type="button" onClick={deleteActive} className="btn btn-ghost" style={{ fontSize: 12, color: 'var(--color-neg-text)', marginLeft: 'auto' }}>
+          <button type="button" onClick={deleteActive} className="btn btn-ghost" style={{ fontSize: 12, color: 'var(--color-neg-text)' }}>
             Delete "{active.name}"
           </button>
         )}
@@ -276,13 +298,11 @@ export function WatchlistsPage() {
           {viewError ? (
             <ErrorText>Couldn't load this watchlist: {viewError}</ErrorText>
           ) : rows.length === 0 ? (
-            <div className="card blueprint" style={{ maxWidth: 480, padding: 28 }}>
-              <Corners />
+            <div className="card" style={{ maxWidth: 480, padding: 28 }}>
               <div className="card-kicker">{active.name}</div>
               <div className="card-title">Nothing in this list yet</div>
               <p className="card-body">Search for a symbol above, or run a screen and add matches straight from the results.</p>
-              <button type="button" className="btn btn-primary blueprint" onClick={() => navigate('/screener')} style={{ whiteSpace: 'nowrap', alignSelf: 'flex-start' }}>
-                <Corners />
+              <button type="button" className="btn btn-primary" onClick={() => navigate('/screener')} style={{ whiteSpace: 'nowrap', alignSelf: 'flex-start' }}>
                 Go to Screener
               </button>
             </div>
@@ -336,7 +356,7 @@ export function WatchlistsPage() {
                           key={row.instrument_id}
                           style={{ background: isSelected ? 'var(--color-accent-100)' : undefined }}
                         >
-                          <td onClick={(e) => e.stopPropagation()}>
+                          <td onClick={(e) => e.stopPropagation()} style={{ padding: rowPad }}>
                             <input
                               type="checkbox"
                               checked={isSelected}
@@ -344,34 +364,34 @@ export function WatchlistsPage() {
                               aria-label={`Select ${row.symbol}`}
                             />
                           </td>
-                          <td>
+                          <td style={{ padding: rowPad }}>
                             {/* A real link, matching the Screener and Scan
                                 tables -- the row used to navigate on click
                                 only, which no keyboard user could reach. */}
                             <Link to={`/stocks/${row.instrument_id}`} state={{ from: '/watchlists', fromLabel: active.name }}>
-                              <strong>{row.symbol}</strong>
+                              <strong style={{ fontSize: rowFont }}>{row.symbol}</strong>
                             </Link>
                             <div style={{ fontSize: 12, color: 'var(--color-neutral-600)', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {row.company_name}
                             </div>
                           </td>
-                          <td>{row.sector ? <span className="tag tag-outline" style={{ whiteSpace: 'nowrap' }}>{row.sector}</span> : <span className="text-muted">—</span>}</td>
-                          <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtPrice(row.close)}</td>
-                          <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: chg.color }}>
+                          <td style={{ padding: rowPad }}>{row.sector ? <span className="tag tag-neutral" style={{ whiteSpace: 'nowrap' }}>{row.sector}</span> : <span className="text-muted">—</span>}</td>
+                          <td style={{ padding: rowPad, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: rowFont }}>{fmtPrice(row.close)}</td>
+                          <td style={{ padding: rowPad, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: rowFont, color: chg.color }}>
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
                               <ChangeGlyph v={chg} />
                               {fmtPct(row.day_change_pct)}
                             </span>
                           </td>
-                          <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: d50v.color }}>{fmtPct(row.dist50)}</td>
-                          <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: d200v.color }}>{fmtPct(row.dist200)}</td>
-                          <td>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', fontSize: 12, fontWeight: 600, border: `1px solid ${tv.border}`, color: tv.color, background: tv.bg, whiteSpace: 'nowrap' }}>
+                          <td style={{ padding: rowPad, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: rowFont, color: d50v.color }}>{fmtPct(row.dist50)}</td>
+                          <td style={{ padding: rowPad, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: rowFont, color: d200v.color }}>{fmtPct(row.dist200)}</td>
+                          <td style={{ padding: rowPad }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 999, padding: '4px 11px', fontSize: 12, fontWeight: 600, color: tv.color, background: tv.bg, whiteSpace: 'nowrap' }}>
                               <ChangeGlyph v={tv} />
                               {tv.label}
                             </span>
                           </td>
-                          <td>
+                          <td style={{ padding: rowPad }}>
                             <button
                               type="button" className="btn btn-icon"
                               aria-label={`Remove ${row.symbol} from ${active.name}`}

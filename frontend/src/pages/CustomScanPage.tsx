@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Corners } from '../components/Blueprint'
 import { EmptyState } from '../components/EmptyState'
 import { apiFetch, ApiError } from '../lib/api'
 import { ErrorText, fmtPrice } from '../lib/format'
@@ -88,12 +87,10 @@ export function CustomScanPage() {
   return (
     <div style={{ maxWidth: 900 }}>
       <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
-        <button type="button" className={scanType === 'crossover' ? 'btn btn-primary blueprint' : 'btn btn-secondary'} aria-pressed={scanType === 'crossover'} onClick={() => setScanType('crossover')}>
-          {scanType === 'crossover' && <Corners />}
+        <button type="button" className={scanType === 'crossover' ? 'btn btn-primary' : 'btn btn-secondary'} aria-pressed={scanType === 'crossover'} onClick={() => setScanType('crossover')}>
           MA Crossover
         </button>
-        <button type="button" className={scanType === 'zone' ? 'btn btn-primary blueprint' : 'btn btn-secondary'} aria-pressed={scanType === 'zone'} onClick={() => setScanType('zone')}>
-          {scanType === 'zone' && <Corners />}
+        <button type="button" className={scanType === 'zone' ? 'btn btn-primary' : 'btn btn-secondary'} aria-pressed={scanType === 'zone'} onClick={() => setScanType('zone')}>
           Zone Classifier
         </button>
       </div>
@@ -130,8 +127,7 @@ export function CustomScanPage() {
             <option value="crossed_below">Crossed below</option>
           </select>
         </label>
-        <button type="button" className="btn btn-primary blueprint" onClick={runScan} disabled={invalid || loading} style={{ whiteSpace: 'nowrap' }}>
-          <Corners />
+        <button type="button" className="btn btn-primary" onClick={runScan} disabled={invalid || loading} style={{ whiteSpace: 'nowrap' }}>
           {loading ? 'Running…' : 'Run scan'}
         </button>
       </div>
@@ -186,7 +182,7 @@ function CrossoverTable({ matches }: { matches: CrossoverMatch[] }) {
           {rows.map((m) => (
             <tr key={m.instrument_id}>
               <td><Link to={`/stocks/${m.instrument_id}`} state={{ from: '/scan', fromLabel: 'Custom Scan' }}><strong>{m.symbol}</strong></Link></td>
-              <td>{m.sector ? <span className="tag tag-outline">{m.sector}</span> : <span className="text-muted">—</span>}</td>
+              <td>{m.sector ? <span className="tag tag-neutral">{m.sector}</span> : <span className="text-muted">—</span>}</td>
               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtPrice(m.latest_close)}</td>
               <td>
                 <span className="tag tag-accent">{m.signal === 'crossed_above' ? 'Crossed above' : 'Crossed below'}</span>
@@ -262,8 +258,7 @@ function ZoneScanSection({
   return (
     <div className="reveal">
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
-        <button type="button" className="btn btn-primary blueprint" onClick={onRun} disabled={loading || invalid !== null} style={{ whiteSpace: 'nowrap' }}>
-          <Corners />
+        <button type="button" className="btn btn-primary" onClick={onRun} disabled={loading || invalid !== null} style={{ whiteSpace: 'nowrap' }}>
           {loading ? 'Running…' : 'Run scan'}
         </button>
         <div className="field" style={{ margin: 0 }}>
@@ -312,8 +307,7 @@ function ZoneScanSection({
       {pdfMessage && <p role="status" style={{ fontSize: 12.5, color: 'var(--color-neutral-600)', marginBottom: 14 }}>{pdfMessage}</p>}
 
       {showAdvanced && (
-        <div className="card blueprint reveal" style={{ padding: 16, marginBottom: 18 }}>
-          <Corners />
+        <div className="card reveal" style={{ padding: '20px 22px', marginBottom: 18 }}>
           {ZONE_PARAM_GROUPS.map((group) => (
             <div key={group.title} style={{ marginBottom: 14 }}>
               <div className="card-kicker" style={{ marginBottom: 8 }}>{group.title}</div>
@@ -373,7 +367,7 @@ function ZoneScanSection({
                     <tr key={m.instrument_id}>
                       <td><Link to={`/stocks/${m.instrument_id}`} state={{ from: '/scan', fromLabel: 'Custom Scan' }}><strong>{m.ticker}</strong></Link></td>
                       <td>
-                        <span className="tag tag-outline" style={{ color: ZONE_COLORS[m.zone], borderColor: ZONE_COLORS[m.zone], whiteSpace: 'nowrap' }}>
+                        <span className="tag" style={{ color: ZONE_COLORS[m.zone], background: 'var(--color-surface-2)', fontWeight: 600, whiteSpace: 'nowrap' }}>
                           {m.zone}
                           <span className="sr-only"> — {m.zone_label}</span>
                         </span>

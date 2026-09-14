@@ -3,9 +3,9 @@ import { ALL_FIELDS, FIELD_LABELS, operatorsFor } from '../lib/ruleTree'
 import type { RuleAction } from '../lib/ruleTree'
 import type { UiRuleGroup, UiRuleNode } from '../lib/types'
 
-const TOGGLE_BASE: CSSProperties = { padding: '3px 11px', fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600, letterSpacing: '0.03em', border: 'none', cursor: 'pointer' }
-const TOGGLE_ON: CSSProperties = { ...TOGGLE_BASE, background: 'var(--color-brand-mid)', color: '#fff' }
-const TOGGLE_OFF: CSSProperties = { ...TOGGLE_BASE, background: 'var(--color-neutral-100)', color: 'var(--color-neutral-700)' }
+const TOGGLE_BASE: CSSProperties = { padding: '7px 16px', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 999, cursor: 'pointer' }
+const TOGGLE_ON: CSSProperties = { ...TOGGLE_BASE, background: 'var(--color-brand)', color: '#fff' }
+const TOGGLE_OFF: CSSProperties = { ...TOGGLE_BASE, background: 'none', color: 'var(--color-neutral-600)' }
 
 interface Props {
   group: UiRuleGroup
@@ -19,13 +19,13 @@ export function RuleGroup({ group, path, onMutate, depth }: Props) {
 
   const body = (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-        <div style={{ display: 'inline-flex', border: '1px solid var(--color-neutral-400)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'inline-flex', background: 'var(--color-surface-2)', borderRadius: 999, padding: 4 }}>
           <button type="button" onClick={() => onMutate(path, 'setOp', 'AND')} style={isAnd ? TOGGLE_ON : TOGGLE_OFF}>AND</button>
           <button type="button" onClick={() => onMutate(path, 'setOp', 'OR')} style={!isAnd ? TOGGLE_ON : TOGGLE_OFF}>OR</button>
         </div>
-        <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--color-neutral-600)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>
-          {depth === 0 ? 'Match stocks where' : 'Nested group'}
+        <span style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--color-neutral-600)', whiteSpace: 'nowrap' }}>
+          {depth === 0 ? `Match stocks where ${isAnd ? 'all' : 'any'} of these hold` : 'Nested group'}
         </span>
         <div style={{ flex: 1 }} />
         <button type="button" className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => onMutate(path, 'addRule')}>+ Condition</button>
@@ -47,11 +47,8 @@ export function RuleGroup({ group, path, onMutate, depth }: Props) {
   )
 
   if (depth === 0) return body
-  // Full hairline border rather than a thick coloured left stripe: the stripe
-  // was the one element on the page speaking a different visual language from
-  // the blueprint frames everywhere else.
   return (
-    <div style={{ border: '1px solid var(--color-accent-400)', padding: '10px 14px', margin: '6px 0 6px 14px', background: 'var(--color-accent-100)' }}>
+    <div style={{ borderRadius: 16, padding: '12px 14px', margin: '6px 0 6px 14px', background: 'var(--color-accent-100)' }}>
       {body}
     </div>
   )
@@ -63,7 +60,7 @@ function RuleNodeRow({ node, path, onMutate, depth }: { node: UiRuleNode; path: 
   }
   const ops = operatorsFor(node.field)
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '5px 0', flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 10px', padding: '10px 12px', flexWrap: 'wrap', background: 'var(--color-surface-2)', borderRadius: 14 }}>
       <label className="field" style={{ margin: 0 }}>
         <span className="sr-only">Field</span>
         <select className="input" value={node.field} onChange={(e) => onMutate(path, 'setField', e.target.value)} style={{ width: 150, fontSize: 13, padding: '5px 8px' }}>

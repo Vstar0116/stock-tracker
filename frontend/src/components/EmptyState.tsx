@@ -6,7 +6,7 @@ import type { ReactNode } from 'react'
  *  already explain themselves. */
 export function EmptyState({ title, hint, action }: { title: string; hint?: string; action?: ReactNode }) {
   return (
-    <div style={{ padding: 26, textAlign: 'center', border: '1px solid var(--color-neutral-300)' }}>
+    <div style={{ padding: 26, textAlign: 'center', background: 'var(--color-surface)', borderRadius: 22 }}>
       <div style={{ fontSize: 13, color: 'var(--color-neutral-700)' }}>{title}</div>
       {hint && (
         <div style={{ fontSize: 12.5, color: 'var(--color-neutral-600)', marginTop: 5, maxWidth: 460, marginInline: 'auto' }}>

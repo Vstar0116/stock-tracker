@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.models import Screen, User, Watchlist
+from app.models import Holding, Screen, User, Watchlist
 from app.security import decode_access_token
 
 # auto_error=False so a missing header falls through to our own 401 below,
@@ -59,6 +59,21 @@ def get_owned_watchlist(
     if watchlist is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "watchlist not found")
     return watchlist
+
+
+def get_owned_holding(
+    holding_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Holding:
+    """Same ownership-scoping pattern as get_owned_watchlist -- a holding
+    owned by someone else 404s exactly like a missing id would."""
+    holding = db.execute(
+        select(Holding).where(Holding.id == holding_id, Holding.user_id == current_user.id)
+    ).scalar_one_or_none()
+    if holding is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "holding not found")
+    return holding
 
 
 def get_owned_screen(

@@ -4,8 +4,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.alerts import router as alerts_router
 from app.api.auth import router as auth_router
 from app.api.crossover import router as crossover_router
+from app.api.dashboard import router as dashboard_router
 from app.api.health import router as health_router
 from app.api.instruments import router as instruments_router
+from app.api.portfolio import router as portfolio_router
 from app.api.public import router as public_router
 from app.api.screens import router as screens_router
 from app.api.status import router as status_router
@@ -43,6 +45,8 @@ app.include_router(crossover_router)
 app.include_router(instruments_router)
 app.include_router(public_router)
 app.include_router(watchlists_router)
+app.include_router(dashboard_router)
+app.include_router(portfolio_router)
 app.include_router(screens_router)
 app.include_router(alerts_router)
 app.include_router(status_router)

@@ -14,6 +14,7 @@ from app.api.deps import Pagination, get_current_user, get_owned_screen, paginat
 from app.db.session import get_db
 from app.models import Alert, Screen, User
 from app.rate_limit import RateLimiter
+from app.schemas.backtest import BacktestRequest, BacktestResponse, HorizonStats
 from app.schemas.common import Page
 from app.schemas.screen import (
     ScreenCreate,
@@ -25,6 +26,7 @@ from app.schemas.screen import (
     ScreenUpdate,
     parse_screen_definition,
 )
+from app.services.backtest import run_backtest, summarize
 from app.services.nl_screen import NlScreenError, translate_to_rule
 from app.services.screening import NON_SNAPSHOT_COLUMNS, compile_screen, latest_trade_date, previous_trade_date
 
@@ -176,6 +178,21 @@ def preview_screen(
     prev_date = previous_trade_date(db, as_of_date)
     rows = _run_compiled(db, compile_screen(payload.definition, as_of_date, prev_date))
     return _paginate(_to_matches(rows), page)
+
+
+@router.post("/backtest", response_model=BacktestResponse)
+def backtest_screen(
+    payload: BacktestRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # unused -- enforces auth like every other route here
+) -> BacktestResponse:
+    result = run_backtest(db, payload.definition, payload.lookback_days)
+    return BacktestResponse(
+        as_of=result.as_of,
+        dates_evaluated=result.dates_evaluated,
+        total_matches=result.total_matches,
+        horizons=[HorizonStats(**summarize(h)) for h in result.horizons],
+    )
 
 
 @router.post("/{screen_id}/run", response_model=Page[ScreenMatchOut])

@@ -306,33 +306,31 @@ function ZoneScanSection({
       {pdfError && <ErrorText>{pdfError}</ErrorText>}
       {pdfMessage && <p role="status" style={{ fontSize: 12.5, color: 'var(--color-neutral-600)', marginBottom: 14 }}>{pdfMessage}</p>}
 
-      {showAdvanced && (
-        <div className="card reveal" style={{ padding: '20px 22px', marginBottom: 18 }}>
-          {ZONE_PARAM_GROUPS.map((group) => (
-            <div key={group.title} style={{ marginBottom: 14 }}>
-              <div className="card-kicker" style={{ marginBottom: 8 }}>{group.title}</div>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {group.fields.map((f) => (
-                  <label key={f.key} className="field" style={{ margin: 0 }}>
-                    <span className="field-label">{f.label}</span>
-                    <input
-                      className="input" style={{ width: f.width ?? 100 }}
-                      type="number" min={f.min} max={f.max} step={f.step ?? (f.int ? '1' : 'any')}
-                      value={params[f.key]} onChange={(e) => setField(f.key, e.target.value)}
-                    />
-                  </label>
-                ))}
-              </div>
+      <div className="card disclosure" data-open={showAdvanced} style={{ padding: '20px 22px', marginBottom: 18 }}>
+        {ZONE_PARAM_GROUPS.map((group) => (
+          <div key={group.title} style={{ marginBottom: 14 }}>
+            <div className="card-kicker" style={{ marginBottom: 8 }}>{group.title}</div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {group.fields.map((f) => (
+                <label key={f.key} className="field" style={{ margin: 0 }}>
+                  <span className="field-label">{f.label}</span>
+                  <input
+                    className="input" style={{ width: f.width ?? 100 }}
+                    type="number" min={f.min} max={f.max} step={f.step ?? (f.int ? '1' : 'any')}
+                    value={params[f.key]} onChange={(e) => setField(f.key, e.target.value)}
+                  />
+                </label>
+              ))}
             </div>
-          ))}
-          <button
-            type="button" className="btn btn-secondary" style={{ fontSize: 12.5, alignSelf: 'flex-start' }}
-            onClick={() => onParamsChange(ZONE_PARAM_DEFAULTS)}
-          >
-            Reset to defaults
-          </button>
-        </div>
-      )}
+          </div>
+        ))}
+        <button
+          type="button" className="btn btn-secondary" style={{ fontSize: 12.5, alignSelf: 'flex-start' }}
+          onClick={() => onParamsChange(ZONE_PARAM_DEFAULTS)}
+        >
+          Reset to defaults
+        </button>
+      </div>
       {/* Caught here rather than as a 422 from the server, matching what the
           Crossover tab on this same page already did. */}
       {invalid && <ErrorText>{invalid}</ErrorText>}

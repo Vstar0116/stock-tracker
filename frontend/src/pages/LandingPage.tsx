@@ -67,7 +67,7 @@ function LandingContent({ snap }: { snap: MarketSnapshotOut }) {
         </nav>
       </header>
 
-      <section style={{ padding: '68px 0 28px', display: 'grid', gridTemplateColumns: 'minmax(0, 1.05fr) minmax(0, 0.95fr)', gap: 56, alignItems: 'center' }}>
+      <section className="landing-hero-grid" style={{ padding: '68px 0 28px' }}>
         <div>
           <h1 style={{ fontSize: 'clamp(40px, 5.6vw, 64px)', lineHeight: 1, margin: '0 0 24px', textWrap: 'balance' }}>Your market evening, already sorted.</h1>
           <p style={{ fontSize: 19, lineHeight: 1.55, color: 'var(--color-neutral-700)', maxWidth: '30em', margin: '0 0 32px' }}>
@@ -162,7 +162,7 @@ function LandingContent({ snap }: { snap: MarketSnapshotOut }) {
         </div>
       </section>
 
-      <section id="screens" style={{ padding: '104px 0 0', display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gap: 24 }}>
+      <section id="screens" className="landing-screens-grid" style={{ padding: '104px 0 0' }}>
         <div className="card blueprint" style={{ padding: 40 }}>
           <h3>Describe the screen. Keep the rule.</h3>
           <p style={{ fontSize: 17, color: 'var(--color-neutral-700)', lineHeight: 1.55, margin: '0 0 28px', maxWidth: '34em' }}>

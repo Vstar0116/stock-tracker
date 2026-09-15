@@ -302,20 +302,48 @@ select.input {
 /* — stock detail: minmax(0,…) stops the chart column blowing out the grid — */
 .detail-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 20px; align-items: start; }
 
-/* — toast: rises in, so it registers in peripheral vision — */
-.toast { animation: toast-in var(--dur) var(--ease-out); }
-@keyframes toast-in { from { opacity: 0; transform: translateY(4px); } }
+/* — landing page: fixed two-column sections, collapsed to one column on mobile — */
+.landing-hero-grid { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr); gap: 56px; align-items: center; }
+.landing-screens-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 24px; }
 
-/* — panel reveal, used by the tab bodies and the advanced-params drawer — */
-.reveal { animation: reveal var(--dur) var(--ease-out); }
-@keyframes reveal { from { opacity: 0; transform: translateY(-3px); } }
+/* — toast: always mounted; visibility and motion are driven by data-open,
+   so entrance and exit are the same interruptible transition played in
+   each direction — */
+.toast {
+  opacity: 0; transform: translateY(4px); pointer-events: none;
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
+}
+.toast[data-open="true"] { opacity: 1; transform: translateY(0); pointer-events: auto; }
+
+/* — panel reveal: entrance-only, for branches of a tab swap that fully
+   mount/unmount each other — */
+.reveal {
+  opacity: 1; transform: translateY(0);
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
+}
+@starting-style {
+  .reveal { opacity: 0; transform: translateY(-3px); }
+}
+
+/* — disclosure: open/close toggle for a block that stays mounted so it can
+   get a real exit transition; display:none reserves no layout space when
+   closed, matching the previous conditional-mount behavior — */
+.disclosure {
+  display: none; opacity: 0; transform: translateY(-3px);
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out), display var(--dur) allow-discrete;
+}
+.disclosure[data-open="true"] { display: block; opacity: 1; transform: translateY(0); }
+@starting-style {
+  .disclosure[data-open="true"] { opacity: 0; transform: translateY(-3px); }
+}
 
 /* — loading skeletons, in place of a bare "Loading…" — */
-.skeleton { background: color-mix(in srgb, var(--color-text) 9%, transparent); animation: skeleton-pulse 1.4s ease-in-out infinite; }
+.skeleton { background: color-mix(in srgb, var(--color-text) 9%, transparent); animation: skeleton-pulse 1.4s linear infinite; }
 @keyframes skeleton-pulse { 50% { opacity: 0.45; } }
 
 @media (max-width: 900px) {
   .detail-grid { grid-template-columns: minmax(0, 1fr); }
+  .landing-hero-grid, .landing-screens-grid { grid-template-columns: minmax(0, 1fr); }
   .app-sidebar {
     position: fixed; inset: 0 auto 0 0; z-index: var(--z-modal); width: 244px;
     transform: translateX(-100%); transition: transform var(--dur) var(--ease-out);

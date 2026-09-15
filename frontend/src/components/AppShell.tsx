@@ -1,62 +1,30 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { CommandPalette } from './CommandPalette'
+import { ErrorBoundary } from './ErrorBoundary'
 import { apiFetch } from '../lib/api'
 import { useAuth } from '../lib/auth'
+import { IconActivity, IconBell, IconBriefcase, IconCheckCircle, IconHome, IconList, IconLogout, IconMenu, IconSearch, IconSliders, IconWand, IconWarningTriangle } from '../lib/icons'
 import { useHeader } from '../lib/pageHeader'
 import type { AlertOut, Page, StatusOut } from '../lib/types'
 
 const POLL_MS = 5 * 60_000
 
 const NAV_ITEMS = [
-  {
-    to: '/watchlists',
-    label: 'Watchlists',
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" />
-        <line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
-      </svg>
-    ),
-  },
-  {
-    to: '/screener',
-    label: 'Screener',
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <line x1="4" y1="21" x2="4" y2="14" /><line x1="4" y1="10" x2="4" y2="3" /><line x1="12" y1="21" x2="12" y2="12" />
-        <line x1="12" y1="8" x2="12" y2="3" /><line x1="20" y1="21" x2="20" y2="16" /><line x1="20" y1="12" x2="20" y2="3" />
-        <line x1="1" y1="14" x2="7" y2="14" /><line x1="9" y1="8" x2="15" y2="8" /><line x1="17" y1="16" x2="23" y2="16" />
-      </svg>
-    ),
-  },
-  {
-    to: '/scan',
-    label: 'Custom Scan',
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-      </svg>
-    ),
-  },
-  {
-    to: '/alerts',
-    label: 'Alerts',
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-      </svg>
-    ),
-  },
-  {
-    to: '/status',
-    label: 'Status',
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-      </svg>
-    ),
-  },
+  { to: '/dashboard', label: 'Dashboard', icon: <IconHome /> },
+  { to: '/watchlists', label: 'Watchlists', icon: <IconList /> },
+  { to: '/portfolio', label: 'Portfolio', icon: <IconBriefcase /> },
+  { to: '/screener', label: 'Screener', icon: <IconSliders /> },
+  { to: '/alert-wizard', label: 'Alert Wizard', icon: <IconWand /> },
+  { to: '/scan', label: 'Custom Scan', icon: <IconSearch /> },
+  { to: '/alerts', label: 'Alerts', icon: <IconBell /> },
+  { to: '/status', label: 'Status', icon: <IconActivity /> },
 ]
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/)
+  return ((parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase()
+}
 
 function FreshnessBox() {
   const [status, setStatus] = useState<StatusOut | null>(null)
@@ -74,36 +42,25 @@ function FreshnessBox() {
 
   if (!status) return null
   const isStale = !status.is_current
-  const border = isStale ? 'var(--color-warn-border)' : 'var(--color-pos-border)'
-  const bg = isStale ? 'var(--color-warn-bg)' : 'var(--color-pos-bg)'
-  const text = isStale ? 'var(--color-warn-text)' : 'var(--color-pos-text)'
-  const label = status.latest_trade_date ? `Data as of ${status.latest_trade_date}` : 'No data yet'
+  const dotColor = isStale ? 'var(--color-warn-text)' : 'var(--color-pos-text)'
+  const label = isStale ? 'Data one day behind' : 'Data current'
   const sub = isStale
-    ? `Expected ${status.expected_trade_date} — tonight's pipeline may not have completed`
-    : 'Pipeline completed on schedule'
+    ? `Expected ${status.expected_trade_date}, showing ${status.latest_trade_date ?? 'no data'}`
+    : status.latest_trade_date
+      ? `Close of ${status.latest_trade_date} ingested`
+      : 'Pipeline completed on schedule'
 
   return (
     <div
-      style={{
-        display: 'flex', alignItems: 'center', gap: 9, padding: '7px 13px', fontFamily: 'var(--font-body)',
-        flexShrink: 0, whiteSpace: 'nowrap', border: `1px solid ${border}`, background: bg, color: text,
-      }}
+      className="freshness-box"
+      style={{ background: 'var(--color-surface-2)', borderRadius: 18, padding: 16, fontFamily: 'var(--font-body)' }}
       title={`last pipeline run: ${status.last_pipeline_run_at ?? 'never'} (${status.last_pipeline_status ?? 'unknown'})`}
     >
-      {isStale ? (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-          <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
-        </svg>
-      ) : (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" />
-        </svg>
-      )}
-      <div>
-        <div style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap' }}>{label}</div>
-        <div style={{ fontSize: 11, opacity: 0.85, whiteSpace: 'nowrap' }}>{sub}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, color: dotColor }}>
+        {isStale ? <IconWarningTriangle size={14} /> : <IconCheckCircle size={14} />}
+        <span style={{ fontSize: 13, fontWeight: 600 }}>{label}</span>
       </div>
+      <div className="freshness-sub" style={{ fontSize: 12.5, color: 'var(--color-neutral-600)', lineHeight: 1.45 }}>{sub}</div>
     </div>
   )
 }
@@ -130,64 +87,111 @@ export function AppShell() {
   const { user, logout } = useAuth()
   const header = useHeader()
   const unseenAlerts = useUnseenAlertsCount()
+  const [navOpen, setNavOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const location = useLocation()
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen((o) => !o)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: 'var(--color-bg)', color: 'var(--color-text)', fontFamily: 'var(--font-body)', fontSize: 14 }}>
-      <aside style={{ width: 220, flex: 'none', borderRight: '1px solid var(--color-divider)', display: 'flex', flexDirection: 'column', padding: '20px 14px' }}>
-        <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 20, letterSpacing: '-0.01em', padding: '0 8px 4px' }}>NSE TRACKER</div>
-        <div style={{ fontSize: 11, color: 'var(--color-neutral-600)', padding: '0 8px 22px', letterSpacing: '0.02em', whiteSpace: 'nowrap' }}>
-          Watchlists · Screener · Alerts
+    <div className={navOpen ? 'app-shell nav-open' : 'app-shell'}>
+      <div className="app-scrim" onClick={() => setNavOpen(false)} aria-hidden="true" />
+
+      <aside className="app-sidebar">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px 22px' }}>
+          <div style={{ width: 32, height: 32, borderRadius: 11, background: 'var(--color-brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
+            <IconActivity size={17} style={{ color: '#fff' }} />
+          </div>
+          <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 18, letterSpacing: '-0.02em' }}>NSE Tracker</span>
         </div>
 
-        {NAV_ITEMS.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            style={({ isActive }) => ({
-              display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', border: 'none',
-              background: isActive ? 'var(--color-accent-100)' : 'none', cursor: 'pointer', padding: '9px 10px', marginBottom: 2,
-              fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap', textDecoration: 'none',
-              color: isActive ? 'var(--color-accent-900)' : 'var(--color-neutral-700)',
-            })}
-          >
-            {item.icon}
-            {item.label}
-            {item.to === '/alerts' && unseenAlerts > 0 && (
-              <span style={{ marginLeft: 'auto', background: 'var(--color-accent-600)', color: '#fff', fontSize: 11, fontWeight: 600, padding: '1px 7px', minWidth: 18, textAlign: 'center' }}>
-                {unseenAlerts}
-              </span>
-            )}
-          </NavLink>
-        ))}
+        <button type="button" className="palette-trigger" onClick={() => setPaletteOpen(true)}>
+          <IconSearch size={15} />
+          <span style={{ flex: 1 }}>Search</span>
+          <kbd>⌘K</kbd>
+        </button>
+
+        <nav aria-label="Main">
+          {NAV_ITEMS.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              // Below 900px the sidebar is an overlay, so navigating has to
+              // close it -- otherwise it covers the page just asked for.
+              onClick={() => setNavOpen(false)}
+              className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+            >
+              {item.icon}
+              {item.label}
+              {item.to === '/alerts' && unseenAlerts > 0 && (
+                <span className="nav-badge">
+                  {unseenAlerts}
+                  <span className="sr-only"> unseen</span>
+                </span>
+              )}
+            </NavLink>
+          ))}
+        </nav>
 
         <div style={{ flex: 1 }} />
-        <div style={{ padding: 8, fontSize: 11, color: 'var(--color-neutral-500)', lineHeight: 1.5 }}>
+
+        <FreshnessBox />
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 4px 2px' }}>
+          <div style={{ width: 32, height: 32, borderRadius: 999, background: 'var(--color-surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600, color: 'var(--color-accent-800)', flex: 'none' }}>
+            {initials(user?.name ?? '')}
+          </div>
+          <div className="user-name" style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {user?.name}
+          </div>
+          <button type="button" onClick={logout} className="btn btn-ghost btn-icon" aria-label="Log out">
+            <IconLogout size={15} />
+          </button>
+        </div>
+        <div style={{ padding: '8px 4px 0', fontSize: 11, color: 'var(--color-neutral-600)', lineHeight: 1.5 }}>
           Internal tracking tool — for informational purposes only.
           <br />
           Not investment advice. No trading or order placement.
         </div>
       </aside>
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
-        <header style={{ flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '16px 28px', borderBottom: '1px solid var(--color-divider)' }}>
-          <div>
-            <h4 style={{ margin: 0 }}>{header.title}</h4>
-            {header.subtitle && <div style={{ fontSize: 12.5, color: 'var(--color-neutral-600)', marginTop: 2 }}>{header.subtitle}</div>}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <FreshnessBox />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'var(--color-neutral-600)' }}>
-              <span>{user?.name}</span>
-              <button type="button" onClick={logout} className="btn btn-ghost" style={{ fontSize: 12.5, padding: '2px 6px' }}>
-                Log out
-              </button>
+      <div className="app-body">
+        <header className="app-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+            <button
+              type="button"
+              className="btn btn-secondary app-nav-toggle"
+              onClick={() => setNavOpen((o) => !o)}
+              aria-label="Menu"
+              aria-expanded={navOpen}
+            >
+              <IconMenu />
+            </button>
+            <div style={{ minWidth: 0 }}>
+              <h1 style={{ margin: 0, fontSize: 20 }}>{header.title}</h1>
+              {header.subtitle && <div className="page-subtitle" style={{ fontSize: 12.5, color: 'var(--color-neutral-600)', marginTop: 2 }}>{header.subtitle}</div>}
             </div>
           </div>
         </header>
-        <main style={{ flex: 1, overflowY: 'auto', padding: '24px 28px 60px' }}>
-          <Outlet />
+        <main className="app-main">
+          {/* Keyed on the route: a crash on one page shouldn't leave the error
+              card stuck in place after the user navigates away. */}
+          <ErrorBoundary key={location.pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
+
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} pages={NAV_ITEMS.map(({ to, label }) => ({ to, label }))} />
     </div>
   )
 }

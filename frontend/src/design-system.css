@@ -1,40 +1,86 @@
-/* Ported from the Claude Design "Industry" system used by the imported
-   NSE Tracker canvas (project 51c10eba-dadf-4314-b887-13e604b527ba). Source
-   of truth for look: retune tokens here, not per-component. Barlow/Barlow
-   Condensed load via <link> in index.html, not @import here -- @import
-   must be a stylesheet's first rule, which this file isn't once Vite
-   concatenates it after Tailwind. */
+/* Rebranded from the Claude Design "Stock Tracker Redesign" project
+   (d0a1eeb0-ab06-43f3-8c80-23ee8b7d13b6). Source of truth for look: retune
+   tokens here, not per-component.
 
+   Body text (Barlow) stays self-hosted for the reason below. Headings
+   (Familjen Grotesk) load from Google Fonts via a <link> in index.html --
+   that request-logging/render-blocking tradeoff is accepted for this one
+   face because the redesign specifically calls for it; Barlow didn't need
+   the tradeoff so it isn't paying it. */
+
+/* Self-hosted (latin subset only -- UI text is English): a <link> to
+   fonts.googleapis.com is a render-blocking third-party request on every
+   page view, and it hands Google a request log of an internal tool's
+   traffic. */
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/barlow-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/barlow-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/barlow-700.woff2') format('woff2');
+}
 :root {
-  --color-bg: #f2f2f3;
-  --color-surface: #e9e9ea;
-  --color-text: #1d1f20;
-  --color-accent: #5980a6;
-  --color-accent-2: #728fab;
-  --color-divider: color-mix(in srgb, #1d1f20 16%, transparent);
+  color-scheme: dark;
 
-  --color-neutral-100: #f5f5f8;
-  --color-neutral-200: #e7e7ea;
-  --color-neutral-300: #d4d4d7;
-  --color-neutral-400: #b7b7ba;
-  --color-neutral-500: #98989b;
-  --color-neutral-600: #7a7a7d;
-  --color-neutral-700: #5d5d60;
-  --color-neutral-800: #424244;
-  --color-neutral-900: #2b2b2d;
+  /* Stock Tracker Redesign palette (Claude Design project d0a1eeb0, file
+     "Stock Tracker Redesign.dc.html") -- one theme, not light+dark. Ramp
+     shape (100..900, dark->light) kept identical to the old slate-blue ramp
+     so every component below that reads --color-neutral-N/--color-accent-N
+     as a self-contained bg+text pair keeps its internal contrast with no
+     per-selector changes -- only the hue and base lightness moved. */
+  --color-bg: #0e0e16;
+  --color-surface: #191927;
+  --color-surface-2: #221f33;
+  --color-text: #edebf8;
+  --color-accent: #8b74ff;
+  --color-accent-2: #a996ff;
+  --color-divider: rgba(255, 255, 255, 0.09);
 
-  --color-accent-100: #eef6ff;
-  --color-accent-200: #d6ebff;
-  --color-accent-300: #b5d9fd;
-  --color-accent-400: #94bce3;
-  --color-accent-500: #749dc4;
-  --color-accent-600: #597ea3;
-  --color-accent-700: #416180;
-  --color-accent-800: #2c455d;
-  --color-accent-900: #1d2d3d;
+  --color-neutral-100: #221f33;
+  --color-neutral-200: #2a283c;
+  --color-neutral-300: #3c3950;
+  --color-neutral-400: #57536b;
+  --color-neutral-500: #6f6c87;
+  --color-neutral-600: #8a87a6;
+  --color-neutral-700: #9491ad;
+  --color-neutral-800: #b6b2ce;
+  --color-neutral-900: #edebf8;
 
-  --font-heading: "Barlow Condensed", system-ui, sans-serif;
-  --font-heading-weight: 600;
+  --color-accent-100: rgba(110, 85, 255, 0.14);
+  --color-accent-200: rgba(110, 85, 255, 0.22);
+  --color-accent-300: #33285c;
+  --color-accent-400: #4a3a80;
+  --color-accent-500: #6e55ff;
+  --color-accent-600: #8a74ff;
+  --color-accent-700: #a996ff;
+  --color-accent-800: #c7bbff;
+  --color-accent-900: #edebf8;
+
+  /* Fixed brand purple: the buttons/badges/toast below pair a solid fill with
+     hardcoded white text, so their background must stay legible on its own
+     rather than riding the accent ramp. */
+  --color-brand: #6e55ff;
+  --color-brand-hover: #7c64ff;
+  --color-brand-active: #5a42e0;
+  --color-brand-mid: #8a74ff;
+  --toast-bg: var(--color-brand-hover);
+
+  --font-heading: "Familjen Grotesk", "Barlow", system-ui, sans-serif;
+  --font-heading-weight: 700;
   --font-body: "Barlow", system-ui, sans-serif;
 
   --space-1: 3.4px;
@@ -44,23 +90,34 @@
   --space-6: 20.4px;
   --space-8: 27.2px;
 
-  --radius-md: 4px;
-  --radius-lg: 7px;
+  /* Motion: state feedback only, never choreography. Users are mid-task. */
+  --dur-fast: 120ms;
+  --dur: 180ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Semantic z-index scale -- every stacking value in the app names one of
+     these, so a new overlay doesn't have to guess a number. */
+  --z-dropdown: 5;
+  --z-modal-backdrop: 30;
+  --z-modal: 40;
+  --z-toast: 50;
 
   --shadow-sm: 0 1px 2px color-mix(in srgb, #2b2b2d 14%, transparent);
   --shadow-md: 0 3px 10px color-mix(in srgb, #2b2b2d 16%, transparent);
   --shadow-lg: 0 12px 32px color-mix(in srgb, #2b2b2d 22%, transparent);
 
-  /* Semantic pos/neg/warn triads (day change, trend badges, freshness box) */
-  --color-pos-text: oklch(0.42 0.12 152);
-  --color-pos-bg: oklch(0.94 0.035 152);
-  --color-pos-border: oklch(0.72 0.1 152);
-  --color-neg-text: oklch(0.45 0.15 27);
-  --color-neg-bg: oklch(0.94 0.035 27);
-  --color-neg-border: oklch(0.72 0.12 27);
-  --color-warn-text: oklch(0.42 0.1 75);
-  --color-warn-bg: oklch(0.92 0.06 75);
-  --color-warn-border: oklch(0.72 0.13 75);
+  /* Semantic pos/neg/warn triads (day change, trend badges, freshness box) --
+     literal values from the redesign source rather than the oklch ramp the
+     light/dark version derived, since there's only one theme to satisfy now. */
+  --color-pos-text: #4bd69b;
+  --color-pos-bg: rgba(75, 214, 155, 0.14);
+  --color-pos-border: rgba(75, 214, 155, 0.35);
+  --color-neg-text: #ff7a72;
+  --color-neg-bg: rgba(255, 122, 114, 0.14);
+  --color-neg-border: rgba(255, 122, 114, 0.35);
+  --color-warn-text: #ffc66b;
+  --color-warn-bg: rgba(255, 198, 107, 0.14);
+  --color-warn-border: rgba(255, 198, 107, 0.35);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -82,12 +139,17 @@ h4 { font-size: 20px; }
 h5 { font-size: 16px; }
 a { color: var(--color-accent-700); text-underline-offset: 3px; }
 a:hover { color: var(--color-accent-900); }
-.text-muted { color: color-mix(in srgb, var(--color-text) 55%, transparent); }
+/* 65%, not 55% -- 55% landed at 3.64:1 on --color-bg, below the 4.5:1 body
+   minimum. Same reason the table header below moved from 60% to 65%. */
+.text-muted { color: color-mix(in srgb, var(--color-text) 65%, transparent); }
 :focus { outline: none; }
 :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 
 /* — blueprint frame: wireframe objects, square, hairline-bordered, with
-     registration-mark corners drawn outside the box — */
+     registration-mark corners drawn outside the box. Legacy look from the
+     original slate-blue theme -- kept only for the public LandingPage, which
+     this redesign pass doesn't touch. Every authenticated screen has moved
+     to the rounded card/pill language above instead. — */
 .blueprint { position: relative; border: 1px solid var(--color-divider); }
 .blueprint > .corner { position: absolute; width: 11px; height: 11px; color: color-mix(in srgb, var(--color-text) 55%, transparent); }
 .blueprint > .corner::before, .blueprint > .corner::after { content: ""; position: absolute; background: currentColor; }
@@ -103,45 +165,63 @@ a:hover { color: var(--color-accent-900); }
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   cursor: pointer; text-decoration: none;
   font-family: var(--font-heading); font-weight: var(--font-heading-weight);
-  font-size: 14px; line-height: 1.2; color: var(--color-text);
+  font-size: 14px; line-height: 1.2; color: var(--color-text); white-space: nowrap;
   background: transparent; border: 1px solid var(--color-divider);
   padding: var(--space-2) calc(var(--space-3) * 1.2);
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
+.btn:active:not(:disabled) { transform: translateY(1px); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.btn-primary { background: var(--color-accent); color: #fff; border-color: var(--color-accent); }
-.btn-primary:hover { background: var(--color-accent-600); }
-.btn-primary:active { background: var(--color-accent-700); }
+/* --color-brand, not --color-accent-500: white on #6E55FF clears the 4.5:1
+   floor for this 14px label. Kept as a fixed token (not a ramp step) so a
+   future theme variant can't invert it into a pale fill white text can't
+   sit on. */
+.btn-primary { background: var(--color-brand); color: #fff; border-color: var(--color-brand); }
+.btn-primary:hover { background: var(--color-brand-hover); border-color: var(--color-brand-hover); }
+.btn-primary:active { background: var(--color-brand-active); border-color: var(--color-brand-active); }
 .btn-secondary { border-color: var(--color-divider); }
 .btn-secondary:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
 .btn-ghost { color: var(--color-accent-700); border-color: transparent; padding-inline: var(--space-1); }
 .btn-ghost:hover { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
 .btn-icon { width: 26px; height: 26px; padding: 0; }
 .btn-block { width: 100%; margin-top: var(--space-2); }
+/* Pill radius on every button, per the redesign's rounded language. .btn-icon
+   stays square dimensions, so the same rule turns it into a circle. */
+.btn { border-radius: 999px; }
 
 /* — forms — */
-.field > label { display: block; font-size: 12px; margin-bottom: 5px; color: color-mix(in srgb, var(--color-text) 70%, transparent); }
+/* Two shapes are supported. Either `.field` is a wrapper holding a <label
+   for=...> (LoginPage), or `.field` IS the <label> and holds a .field-label
+   span -- the wrapping form associates control and text with no id plumbing,
+   which is why most pages use it. */
+.field > label, .field > .field-label { display: block; font-size: 12px; margin-bottom: 5px; color: color-mix(in srgb, var(--color-text) 70%, transparent); }
+label.field { display: block; cursor: pointer; }
 .input {
   width: 100%; min-height: 36px; padding: 6px 10px; font: inherit; font-size: 14px;
   color: var(--color-text); caret-color: var(--color-accent);
-  background: var(--color-surface); border: 1px solid var(--color-divider);
+  background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: 12px;
+  transition: border-color var(--dur-fast) var(--ease-out);
 }
 .input:hover { border-color: color-mix(in srgb, var(--color-text) 45%, transparent); }
 .input:focus-visible { border-color: var(--color-accent); outline-offset: 0; }
 textarea.input { min-height: 90px; resize: vertical; }
 select.input {
   appearance: none; -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235d5d60' stroke-width='1.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a87a6' stroke-width='1.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 8px center; background-size: 14px; padding-right: 28px !important;
 }
 
 /* — cards — */
-.card { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); background: transparent; border: 1px solid var(--color-divider); }
-.card-kicker { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent-700); }
+.card { display: flex; flex-direction: column; gap: var(--space-2); padding: 20px 22px; background: var(--color-surface); border: none; border-radius: 22px; }
+/* Normal-case, not uppercase-tracked: at 10px/0.1em every stat tile and card
+   header read as the same templated label. Weight carries the "kicker" role
+   instead. */
+.card-kicker { font-size: 12px; font-weight: 600; color: var(--color-accent-700); }
 .card-title { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 17px; line-height: 1.2; }
 .card-body { margin: 0; font-size: 13px; opacity: 0.8; flex: 1; }
 
 /* — tags — */
-.tag { display: inline-flex; align-items: center; font-size: 11px; letter-spacing: 0.02em; padding: 3px 10px; }
+.tag { display: inline-flex; align-items: center; font-size: 11px; letter-spacing: 0.02em; padding: 3px 10px; border-radius: 999px; }
 .tag-accent { background: var(--color-accent-100); color: var(--color-accent-800); }
 .tag-neutral { background: var(--color-neutral-100); color: var(--color-neutral-800); }
 .tag-outline { border: 1px solid var(--color-accent-700); color: var(--color-accent-700); }
@@ -150,8 +230,131 @@ select.input {
 .table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .table th {
   text-align: left; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
-  color: color-mix(in srgb, var(--color-text) 60%, transparent);
+  color: color-mix(in srgb, var(--color-text) 65%, transparent);
   padding: var(--space-2); border-bottom: 1px solid var(--color-divider);
 }
 .table td { padding: var(--space-2); border-bottom: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); }
+.table tbody tr { transition: background var(--dur-fast) var(--ease-out); }
 .table tbody tr:hover { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
+
+/* Every table needs this wrapper: the widest is 8 columns and the shell has
+   no horizontal scroll of its own, so without it narrow viewports clip. It
+   also carries the rounded panel look every table sits in, redesign-wide. */
+.table-scroll { width: 100%; overflow-x: auto; background: var(--color-surface); border-radius: 22px; padding: 8px 10px 12px; }
+
+/* Sortable column header. The button carries the click target so the sort is
+   keyboard-reachable; th keeps the styling. */
+.table th.sortable { padding: 0; }
+.table th.sortable > button {
+  display: inline-flex; align-items: center; gap: 4px; width: 100%;
+  font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit;
+  background: none; border: none; cursor: pointer; padding: var(--space-2);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.table th.sortable > button:hover { color: var(--color-text); }
+.table th.sortable.numeric > button { justify-content: flex-end; }
+.table th.sortable .sort-arrow { opacity: 0.35; }
+.table th.sortable[aria-sort] .sort-arrow { opacity: 1; }
+
+/* — section label: one class for the small group headings on Status, Alerts
+     and Stock Detail. Normal-case, matching the redesign's date-group and
+     panel-title style rather than the old uppercase/tracked look. */
+.section-label {
+  font-family: var(--font-body); font-weight: 600;
+  font-size: 13px; color: var(--color-neutral-600); margin-bottom: var(--space-3);
+}
+
+/* — app shell: lives here rather than inline so it can hold breakpoints —
+   Sidebar sits flush on the page background; the body panel is inset with a
+   rounded left edge, no border-right on the sidebar (redesign's "floating
+   panel" look). Rounding is dropped below 900px, where the sidebar becomes
+   a full-width overlay instead of a side rail. */
+.app-shell { display: flex; height: 100dvh; background: var(--color-bg); color: var(--color-text); font-family: var(--font-body); font-size: 14px; }
+.app-sidebar { width: 244px; flex: none; display: flex; flex-direction: column; gap: 6px; padding: 20px 14px; background: var(--color-bg); }
+.app-body { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; background: var(--color-surface); border-radius: 26px 0 0 26px; margin: 10px 10px 10px 0; }
+.app-header { flex: none; display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-4) 28px; border-bottom: 1px solid var(--color-divider); }
+.app-main { flex: 1; overflow-y: auto; padding: 24px 28px 60px; }
+.app-nav-toggle { display: none; }
+.app-scrim { display: none; }
+
+.nav-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: none;
+  cursor: pointer; padding: 10px 12px; margin-bottom: 2px; border-radius: 14px;
+  font-family: var(--font-body); font-size: 14.5px; font-weight: 500; white-space: nowrap; text-decoration: none;
+  background: none; color: var(--color-neutral-700);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.nav-item:hover { background: var(--color-surface-2); color: var(--color-text); }
+.nav-item.active { background: var(--color-accent-100); color: var(--color-accent-800); }
+.nav-item .nav-badge { margin-left: auto; background: var(--color-brand); color: #fff; font-size: 11px; font-weight: 600; padding: 1px 7px; min-width: 18px; text-align: center; border-radius: 999px; }
+
+.palette-trigger {
+  display: flex; align-items: center; gap: 9px; width: 100%; background: var(--color-surface); border: 1px solid var(--color-divider);
+  border-radius: 14px; color: var(--color-neutral-600); font-size: 14px; padding: 10px 12px; margin-bottom: 10px; cursor: pointer; text-align: left;
+}
+.palette-trigger kbd { background: var(--color-surface-2); border-radius: 7px; font-size: 11.5px; font-weight: 600; padding: 3px 7px; color: var(--color-neutral-700); font-family: inherit; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+/* — stock detail: minmax(0,…) stops the chart column blowing out the grid — */
+.detail-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+
+/* — toast: rises in, so it registers in peripheral vision — */
+.toast { animation: toast-in var(--dur) var(--ease-out); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(4px); } }
+
+/* — panel reveal, used by the tab bodies and the advanced-params drawer — */
+.reveal { animation: reveal var(--dur) var(--ease-out); }
+@keyframes reveal { from { opacity: 0; transform: translateY(-3px); } }
+
+/* — loading skeletons, in place of a bare "Loading…" — */
+.skeleton { background: color-mix(in srgb, var(--color-text) 9%, transparent); animation: skeleton-pulse 1.4s ease-in-out infinite; }
+@keyframes skeleton-pulse { 50% { opacity: 0.45; } }
+
+@media (max-width: 900px) {
+  .detail-grid { grid-template-columns: minmax(0, 1fr); }
+  .app-sidebar {
+    position: fixed; inset: 0 auto 0 0; z-index: var(--z-modal); width: 244px;
+    transform: translateX(-100%); transition: transform var(--dur) var(--ease-out);
+    box-shadow: var(--shadow-lg);
+  }
+  .app-shell.nav-open .app-sidebar { transform: translateX(0); }
+  .app-shell.nav-open .app-scrim { display: block; position: fixed; inset: 0; z-index: var(--z-modal-backdrop); background: color-mix(in srgb, #1d1f20 35%, transparent); }
+  .app-nav-toggle { display: inline-flex; }
+  .app-body { border-radius: 0; margin: 0; }
+  .app-header { padding: var(--space-3) var(--space-4); }
+  .app-main { padding: var(--space-4) var(--space-4) 48px; }
+  /* Custom Scan's subtitle is a full sentence; at this width it wrapped to
+     four lines and pushed the header to 143px tall. The title carries the
+     page identity on its own. */
+  .page-subtitle { display: none; }
+  .app-header h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+/* The header carries title + freshness + user at 375px, which does not fit.
+   Drop the supporting lines rather than the signals themselves -- the
+   freshness state is the one thing that must survive. */
+@media (max-width: 700px) {
+  .freshness-sub, .user-name { display: none; }
+  .app-header h1 { font-size: 17px; }
+}
+
+/* Coarse pointers need real targets. 26px icon buttons and zero-padding ghost
+   buttons are fine with a mouse and unusable with a thumb. */
+@media (pointer: coarse) {
+  .btn { min-height: 44px; }
+  .btn-icon { width: 44px; height: 44px; }
+  .btn-ghost { min-height: 44px; padding-inline: var(--space-2); }
+  .input { min-height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

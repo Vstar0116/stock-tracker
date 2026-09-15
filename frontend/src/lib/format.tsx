@@ -1,4 +1,16 @@
+import type { CSSProperties, ReactNode } from 'react'
 import type { TrendState } from './types'
+
+/** Every user-facing error message goes through this. role="alert" is the
+ *  point: error text rendered as a plain <p> appears silently to a screen
+ *  reader, so a failed save or scan simply never gets announced. */
+export function ErrorText({ children, style }: { children: ReactNode; style?: CSSProperties }) {
+  return (
+    <p role="alert" style={{ fontSize: 13, color: 'var(--color-neg-text)', margin: '0 0 14px', ...style }}>
+      {children}
+    </p>
+  )
+}
 
 export function indianNum(num: number | null | undefined, decimals = 2): string {
   if (num === null || num === undefined || isNaN(num)) return '—'
@@ -58,6 +70,43 @@ export function trendVisual(trend: TrendState): TrendVisual {
   }
   const label = trend === 'neutral' ? 'Sideways' : 'Unknown'
   return { up: false, down: false, flat: true, label, color: 'var(--color-neutral-700)', bg: 'var(--color-neutral-200)', border: 'var(--color-neutral-400)' }
+}
+
+/** Fundamentals are manual-entry only (CLAUDE.md) -- no job refreshes them,
+ *  so a screen match built on peg/roce/fcf_conversion/etc. can be quietly
+ *  acting on numbers from months ago. Thresholds match the quarterly
+ *  earnings cadence the data is meant to be refreshed on: a quarter late is
+ *  still normal, two quarters late is worth a second look, beyond that the
+ *  numbers likely predate a full earnings cycle or two. */
+export function fundamentalsStaleness(asOfIso: string): TrendVisual {
+  const asOf = new Date(asOfIso + 'T00:00:00Z')
+  const today = new Date()
+  const todayUtc = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
+  const days = Math.round((todayUtc.getTime() - asOf.getTime()) / 86400000)
+  const dateLabel = asOf.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+  if (days <= 100) {
+    return { up: false, down: false, flat: true, label: `Fundamentals as of ${dateLabel}`, color: 'var(--color-pos-text)', bg: 'var(--color-pos-bg)', border: 'var(--color-pos-border)' }
+  }
+  if (days <= 200) {
+    return { up: false, down: false, flat: true, label: `Fundamentals as of ${dateLabel} (${days}d old)`, color: 'var(--color-warn-text)', bg: 'var(--color-warn-bg)', border: 'var(--color-warn-border)' }
+  }
+  return { up: false, down: false, flat: true, label: `Fundamentals as of ${dateLabel} (${days}d old — stale)`, color: 'var(--color-neg-text)', bg: 'var(--color-neg-bg)', border: 'var(--color-neg-border)' }
+}
+
+/** Renders nothing when there's no fundamentals data for the current
+ *  results (most of the market -- fundamentals are seeded for a curated
+ *  subset only, not full-market). */
+export function FundamentalsAsOf({ asOf }: { asOf: string | null | undefined }) {
+  if (!asOf) return null
+  const v = fundamentalsStaleness(asOf)
+  return (
+    <span
+      className="tag"
+      style={{ background: v.bg, color: v.color, border: `1px solid ${v.border}`, whiteSpace: 'nowrap' }}
+    >
+      {v.label}
+    </span>
+  )
 }
 
 /** Small up/down/flat triangle-or-dash icon matching the design's inline SVGs. */

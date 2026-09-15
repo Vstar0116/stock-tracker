@@ -40,6 +40,7 @@ INDICATOR_COLUMNS = [
     "sma_100",
     "sma_200",
     "ema_20",
+    "ema_21",
     "ema_50",
     "rsi_14",
     "macd",

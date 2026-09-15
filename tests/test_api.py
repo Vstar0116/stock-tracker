@@ -402,6 +402,24 @@ class TestAlerts:
         assert mark.status_code == 200
         assert mark.json()["seen"] is True
 
+    def test_bulk_mark_seen_scoped_to_owner(self, client, owner, other_user, priced_instrument):
+        headers = _auth(owner)
+        rule = {"type": "compare", "op": "gt", "field": "close", "value": 100}
+        screen_id = client.post("/api/screens", json={"name": "Bulk Alert Source", "definition": rule}, headers=headers).json()["id"]
+        client.post(f"/api/screens/{screen_id}/run", headers=headers)
+        alert = client.get("/api/alerts", headers=headers).json()["items"][0]
+
+        other_headers = _auth(other_user)
+        other_result = client.post("/api/alerts/seen", json={"ids": [alert["id"]]}, headers=other_headers)
+        assert other_result.status_code == 200
+        assert other_result.json()["updated"] == 0
+        assert client.get("/api/alerts", headers=headers).json()["items"][0]["seen"] is False
+
+        result = client.post("/api/alerts/seen", json={"ids": [alert["id"], 999999]}, headers=headers)
+        assert result.status_code == 200
+        assert result.json()["updated"] == 1
+        assert client.get("/api/alerts", headers=headers).json()["items"][0]["seen"] is True
+
 
 class TestStatus:
     def test_returns_freshness_info(self, client, owner):
@@ -447,6 +465,68 @@ class TestStatus:
         body = resp.json()
         assert body["last_pipeline_status"] == "failed"  # most recent run, regardless of outcome
         assert body["last_successful_pipeline_run_at"].startswith("2099-01-01")
+
+    def test_downloads_returns_only_ingest_price_jobs_paginated(self, client, owner, db):
+        t0 = datetime(2099, 1, 1, tzinfo=timezone.utc)
+        t1 = datetime(2099, 1, 2, tzinfo=timezone.utc)
+        db.add(JobRun(job_name="ingest_prices_nse", run_date=t0.date(), status="success",
+                       started_at=t0, finished_at=t0, rows_processed=2500))
+        db.add(JobRun(job_name="ingest_prices_bse", run_date=t1.date(), status="failed",
+                       started_at=t1, finished_at=t1, error_message="boom"))
+        db.add(JobRun(job_name="compute_indicators", run_date=t1.date(), status="success",
+                       started_at=t1, finished_at=t1, rows_processed=99))  # not a download -- must be excluded
+        db.flush()
+
+        resp = client.get("/api/status/downloads", headers=_auth(owner))
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 2
+        exchanges = {item["exchange"] for item in body["items"]}
+        assert exchanges == {"NSE", "BSE"}
+        # newest first
+        assert body["items"][0]["trade_date"] == "2099-01-02"
+        assert body["items"][0]["status"] == "failed"
+        assert body["items"][0]["error_message"] == "boom"
+
+        paged = client.get("/api/status/downloads?limit=1", headers=_auth(owner))
+        assert paged.status_code == 200
+        assert len(paged.json()["items"]) == 1
+        assert paged.json()["total"] == 2
+
+    def test_run_now_triggers_subprocess_and_returns_202(self, client, owner, monkeypatch):
+        from app.api import status as status_module
+
+        calls = []
+        monkeypatch.setattr(status_module.subprocess, "Popen", lambda *a, **k: calls.append((a, k)))
+
+        resp = client.post("/api/status/run-now", headers=_auth(owner))
+        assert resp.status_code == 202
+        assert resp.json() == {"triggered": True}
+        assert len(calls) == 1
+        (argv,), kwargs = calls[0]
+        assert argv == [status_module.sys.executable, "-m", "app.jobs.daily_pipeline"]
+        assert kwargs["start_new_session"] is True
+
+    def test_run_now_requires_auth(self, client):
+        resp = client.post("/api/status/run-now")
+        assert resp.status_code == 401
+
+    def test_run_now_daily_cap_blocks_after_limit_and_is_per_user(self, client, owner, other_user, monkeypatch):
+        from app.api import status as status_module
+
+        monkeypatch.setattr(status_module.subprocess, "Popen", lambda *a, **k: None)
+
+        headers = _auth(owner)
+        for _ in range(status_module.pipeline_trigger_limiter.max_requests):
+            resp = client.post("/api/status/run-now", headers=headers)
+            assert resp.status_code == 202
+        blocked = client.post("/api/status/run-now", headers=headers)
+        assert blocked.status_code == 429
+        assert "daily limit" in blocked.json()["detail"]
+
+        # A different user has their own, untouched budget.
+        other_resp = client.post("/api/status/run-now", headers=_auth(other_user))
+        assert other_resp.status_code == 202
 
 
 class TestUnhandledErrors:
@@ -697,6 +777,26 @@ class TestCrossoverScan:
         assert resp.status_code == 401
 
 
+    def test_scan_rate_limit_blocks_after_cap_and_is_per_user(self, client, owner, other_user, monkeypatch):
+        """The scan is a whole-market pandas computation over user-supplied
+        parameters, so it's rate limited per user (CLAUDE.md checklist #12).
+        Cap lowered here so the test doesn't have to run 30 real scans."""
+        from app.api import crossover as crossover_module
+
+        monkeypatch.setattr(crossover_module.scan_limiter, "max_requests", 2)
+        body = {"fast": 9, "slow": 21, "ma_type": "ema", "direction": "any"}
+
+        headers = _auth(owner)
+        for _ in range(2):
+            assert client.post("/api/scans/crossover", json=body, headers=headers).status_code == 200
+        blocked = client.post("/api/scans/crossover", json=body, headers=headers)
+        assert blocked.status_code == 429
+        assert "scan rate limit" in blocked.json()["detail"]
+
+        # A different user has their own, untouched budget.
+        assert client.post("/api/scans/crossover", json=body, headers=_auth(other_user)).status_code == 200
+
+
 class TestZoneClassifier:
     # Note: the zone router requires auth (same `Depends(get_current_user)`
     # pattern as every other router -- see app/api/crossover.py and this
@@ -766,6 +866,83 @@ class TestZoneClassifier:
         zones_seen = [zone_order[m["zone"]] for m in matches]
         assert zones_seen == sorted(zones_seen)
 
+    def test_scan_rate_limit_blocks_after_cap_and_is_per_user(self, client, owner, other_user, monkeypatch):
+        """Same expensive-endpoint reasoning as the crossover scan: a
+        parameter sweep is both CPU cost and lru_cache pressure."""
+        from app.api import zone as zone_module
+
+        monkeypatch.setattr(zone_module.scan_limiter, "max_requests", 2)
+
+        headers = _auth(owner)
+        for _ in range(2):
+            assert client.get("/api/zone/scan", headers=headers).status_code == 200
+        blocked = client.get("/api/zone/scan", headers=headers)
+        assert blocked.status_code == 429
+        assert "scan rate limit" in blocked.json()["detail"]
+
+        assert client.get("/api/zone/scan", headers=_auth(other_user)).status_code == 200
+
     def test_requires_auth(self, client):
         resp = client.get("/api/zone/scan")
+        assert resp.status_code == 401
+
+    def test_parse_protocol_rejects_non_pdf_content_type(self, client, owner):
+        resp = client.post(
+            "/api/zone/parse-protocol", headers=_auth(owner),
+            files={"file": ("notes.txt", b"hello", "text/plain")},
+        )
+        assert resp.status_code == 400
+        assert "PDF" in resp.json()["detail"]
+
+    def test_parse_protocol_rejects_bad_magic_bytes(self, client, owner):
+        resp = client.post(
+            "/api/zone/parse-protocol", headers=_auth(owner),
+            files={"file": ("fake.pdf", b"not a real pdf", "application/pdf")},
+        )
+        assert resp.status_code == 400
+        assert "not a valid PDF" in resp.json()["detail"]
+
+    def test_parse_protocol_rejects_oversized_file(self, client, owner):
+        oversized = b"%PDF-1.4" + b"0" * (5 * 1024 * 1024)
+        resp = client.post(
+            "/api/zone/parse-protocol", headers=_auth(owner),
+            files={"file": ("big.pdf", oversized, "application/pdf")},
+        )
+        assert resp.status_code == 400
+        assert "too large" in resp.json()["detail"]
+
+    def test_parse_protocol_extracts_thresholds_from_pdf_text(self, client, owner, monkeypatch):
+        from app.api import zone as zone_module
+
+        monkeypatch.setattr(
+            zone_module, "extract_pdf_text",
+            lambda data, max_pages=15: "200-Day Simple Moving Average, RSI < 55, RSI between 56 and 65",
+        )
+        resp = client.post(
+            "/api/zone/parse-protocol", headers=_auth(owner),
+            files={"file": ("protocol.pdf", b"%PDF-1.4\nfake", "application/pdf")},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["found"]["macro_sma_period"] == 200
+        assert body["found"]["rsi_zone_a_max"] == 55
+        assert "atr_period" in body["not_found"]
+
+    def test_parse_protocol_unreadable_pdf_400s_not_500s(self, client, owner, monkeypatch):
+        from app.api import zone as zone_module
+        from app.services.protocol_parser import PdfReadError
+
+        def _raise(data, max_pages=15):
+            raise PdfReadError("bad xref table")
+
+        monkeypatch.setattr(zone_module, "extract_pdf_text", _raise)
+        resp = client.post(
+            "/api/zone/parse-protocol", headers=_auth(owner),
+            files={"file": ("protocol.pdf", b"%PDF-1.4\nfake", "application/pdf")},
+        )
+        assert resp.status_code == 400
+        assert "could not read PDF" in resp.json()["detail"]
+
+    def test_parse_protocol_requires_auth(self, client):
+        resp = client.post("/api/zone/parse-protocol", files={"file": ("protocol.pdf", b"%PDF-1.4", "application/pdf")})
         assert resp.status_code == 401

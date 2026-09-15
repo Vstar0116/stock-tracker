@@ -54,6 +54,7 @@ class Indicator(Base):
     sma_100: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     sma_200: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     ema_20: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    ema_21: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     ema_50: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     rsi_14: Mapped[Decimal | None] = mapped_column(Numeric(9, 4))
     macd: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))

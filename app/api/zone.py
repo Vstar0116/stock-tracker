@@ -3,16 +3,61 @@ market (Task 5). Additive to the existing indicator/screener/crossover
 features -- see docs/superpowers/specs/2026-08-25-bs-v4-zone-classifier-design.md.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_optional_owned_watchlist
 from app.db.session import get_db
-from app.schemas.zone import SkippedOut, ZoneOut, ZoneParamsOut, ZoneScanResponse
+from app.models import User, WatchlistItem
+from app.rate_limit import RateLimiter
+from app.schemas.zone import SkippedOut, ZoneOut, ZoneParamsOut, ZoneProtocolParseResponse, ZoneScanResponse
+from app.services.protocol_parser import PdfReadError, extract_pdf_text, parse_protocol_text
 from app.services.zone_classifier import ZoneParams
 from app.services.zone_loader import ZoneResult, get_zone_for_instrument, run_zone_scan
 
+# Applies to the protocol-PDF upload below: a private tool used by 4-5
+# people, so a small doc is the only legitimate input. Keeps a malformed or
+# adversarial upload's cost (memory, pypdf parse time) bounded regardless of
+# what the client claims about the file.
+MAX_PROTOCOL_PDF_BYTES = 5 * 1024 * 1024
+MAX_PROTOCOL_PDF_PAGES = 15
+
 router = APIRouter(prefix="/api/zone", tags=["zone"], dependencies=[Depends(get_current_user)])
+
+# Both scan endpoints run a whole-market pandas computation over
+# user-supplied parameters, so they're "expensive endpoints" under
+# CLAUDE.md's security checklist (#12). Beyond raw CPU, every distinct
+# parameter tuple is a fresh cache key in the loaders' lru_caches -- an
+# unlimited sweep both defeats the cache and drives resident memory up, so
+# the cap protects memory as much as CPU. 30/hour per user is far above
+# real interactive use: the scans are button-triggered in CustomScanPage,
+# not re-run as the user types.
+scan_limiter = RateLimiter(
+    key_prefix="zone:scan:user",
+    max_requests=30,
+    window_seconds=3600,
+    message="scan rate limit reached (30/hour) -- results are cached per trading day, so re-running the same scan is free",
+)
+
+
+def _watchlist_instrument_ids(
+    watchlist_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> frozenset[int] | None:
+    """None means "whole market" (the default, unscoped scan). When a
+    watchlist_id is given, ownership is enforced via the same query
+    get_owned_watchlist uses (app/api/deps.py) -- a watchlist owned by
+    someone else 404s exactly like a missing one, never leaking that it
+    exists."""
+    watchlist = get_optional_owned_watchlist(watchlist_id, db, current_user)
+    if watchlist is None:
+        return None
+    ids = db.execute(
+        select(WatchlistItem.instrument_id).where(WatchlistItem.watchlist_id == watchlist.id)
+    ).scalars().all()
+    return frozenset(ids)
 
 
 def _params_from_query(
@@ -56,7 +101,7 @@ def _params_out(params: ZoneParams) -> ZoneParamsOut:
 
 def _zone_out(result: ZoneResult) -> ZoneOut:
     return ZoneOut(
-        ticker=result.ticker, zone=result.zone, zone_label=result.zone_label, rsi=result.rsi,
+        instrument_id=result.instrument_id, ticker=result.ticker, zone=result.zone, zone_label=result.zone_label, rsi=result.rsi,
         price=result.price, macro_sma=result.macro_sma, fast_ema=result.fast_ema, slow_ema=result.slow_ema,
         atr_band_lower=result.atr_band_lower, atr_band_upper=result.atr_band_upper, rvol=result.rvol,
         reason=result.reason,
@@ -64,17 +109,49 @@ def _zone_out(result: ZoneResult) -> ZoneOut:
 
 
 @router.get("/scan", response_model=ZoneScanResponse)
-def scan_zones(db: Session = Depends(get_db), params: ZoneParams = Depends(_params_from_query)) -> ZoneScanResponse:
-    result = run_zone_scan(db, params)
+def scan_zones(
+    db: Session = Depends(get_db),
+    params: ZoneParams = Depends(_params_from_query),
+    instrument_ids: frozenset[int] | None = Depends(_watchlist_instrument_ids),
+    current_user: User = Depends(get_current_user),
+) -> ZoneScanResponse:
+    scan_limiter.check(str(current_user.id))
+    result = run_zone_scan(db, params, instrument_ids)
     return ZoneScanResponse(
         as_of=result.as_of.isoformat(),
         params=_params_out(params),
         matches=[_zone_out(m) for m in result.matches],
         skipped=[SkippedOut(**s) for s in result.skipped],
+        dropped=result.dropped,
         evaluated=result.evaluated,
         cached=result.cached,
         elapsed_ms=result.elapsed_ms,
     )
+
+
+@router.post("/parse-protocol", response_model=ZoneProtocolParseResponse)
+def parse_protocol(file: UploadFile = File(...), current_user: User = Depends(get_current_user)) -> ZoneProtocolParseResponse:
+    """Reads Zone Classifier thresholds out of an uploaded protocol PDF, so
+    the advanced-parameters form can be filled from a document instead of
+    typed in by hand. Never writes the upload to disk -- read fully into
+    memory, parsed, discarded; nothing here trusts the client filename or
+    touches a web-served path (CLAUDE.md checklist #8)."""
+    if file.content_type != "application/pdf":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "file must be a PDF")
+
+    data = file.file.read(MAX_PROTOCOL_PDF_BYTES + 1)
+    if len(data) > MAX_PROTOCOL_PDF_BYTES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "PDF too large (max 5MB)")
+    if not data.startswith(b"%PDF-"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "file is not a valid PDF")
+
+    try:
+        text = extract_pdf_text(data, max_pages=MAX_PROTOCOL_PDF_PAGES)
+    except PdfReadError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "could not read PDF -- it may be corrupted or encrypted")
+
+    found, not_found = parse_protocol_text(text)
+    return ZoneProtocolParseResponse(found=found, not_found=not_found)
 
 
 @router.get("/{instrument_id}", response_model=ZoneOut)

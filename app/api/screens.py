@@ -14,6 +14,7 @@ from app.api.deps import Pagination, get_current_user, get_owned_screen, paginat
 from app.db.session import get_db
 from app.models import Alert, Screen, User
 from app.rate_limit import RateLimiter
+from app.schemas.backtest import BacktestRequest, BacktestResponse, HorizonStats
 from app.schemas.common import Page
 from app.schemas.screen import (
     ScreenCreate,
@@ -25,6 +26,7 @@ from app.schemas.screen import (
     ScreenUpdate,
     parse_screen_definition,
 )
+from app.services.backtest import run_backtest, summarize
 from app.services.nl_screen import NlScreenError, translate_to_rule
 from app.services.screening import NON_SNAPSHOT_COLUMNS, compile_screen, latest_trade_date, previous_trade_date
 
@@ -44,13 +46,24 @@ nl_screen_daily_limiter = RateLimiter(
     message="daily limit for AI-generated screens reached (40/day) -- try again tomorrow, or build the rule manually below",
 )
 
+# Backtest reruns compile_screen once per evaluated trading day (up to
+# MAX_LOOKBACK_DAYS), each a whole-market query -- comparable cost to the
+# scan endpoints that are already rate-limited, so this needs the same guard.
+backtest_limiter = RateLimiter(
+    key_prefix="backtest:user",
+    max_requests=30,
+    window_seconds=3600,
+    message="backtest rate limit reached (30/hour)",
+)
+
 
 def _snapshot(row) -> dict:
     # Categorical fields (sector/industry/series) can appear here via an
     # "in" rule -- only numeric values get the float cast, or a string like
-    # "IT" blows up trying to become a float.
+    # "IT" blows up trying to become a float. fundamentals_as_of is a `date`
+    # (isoformat, not str) -- checked first, or float() blows up on it too.
     return {
-        k: (float(v) if v is not None and not isinstance(v, str) else v)
+        k: (v.isoformat() if hasattr(v, "isoformat") else float(v) if v is not None and not isinstance(v, str) else v)
         for k, v in row.items()
         if k not in NON_SNAPSHOT_COLUMNS
     }
@@ -175,6 +188,22 @@ def preview_screen(
     prev_date = previous_trade_date(db, as_of_date)
     rows = _run_compiled(db, compile_screen(payload.definition, as_of_date, prev_date))
     return _paginate(_to_matches(rows), page)
+
+
+@router.post("/backtest", response_model=BacktestResponse)
+def backtest_screen(
+    payload: BacktestRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BacktestResponse:
+    backtest_limiter.check(str(current_user.id))
+    result = run_backtest(db, payload.definition, payload.lookback_days)
+    return BacktestResponse(
+        as_of=result.as_of,
+        dates_evaluated=result.dates_evaluated,
+        total_matches=result.total_matches,
+        horizons=[HorizonStats(**summarize(h)) for h in result.horizons],
+    )
 
 
 @router.post("/{screen_id}/run", response_model=Page[ScreenMatchOut])

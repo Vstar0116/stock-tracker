@@ -52,7 +52,9 @@ def evaluate_screen(db: Session, screen: Screen, as_of_date, prev_date) -> int:
             "instrument_id": row["instrument_id"],
             "trade_date": row["trade_date"],
             "snapshot": {
-                k: (float(v) if v is not None and not isinstance(v, str) else v)
+                # fundamentals_as_of is a `date` (isoformat, not str) --
+                # checked first, or float() blows up on it too.
+                k: (v.isoformat() if hasattr(v, "isoformat") else float(v) if v is not None and not isinstance(v, str) else v)
                 for k, v in row.items()
                 if k not in NON_SNAPSHOT_COLUMNS
             },

@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 
 class ZoneOut(BaseModel):
+    instrument_id: int
     ticker: str
     zone: Literal["A", "B", "C", "D", "Unclassified", "Insufficient Data"]
     zone_label: str
@@ -19,6 +20,7 @@ class ZoneOut(BaseModel):
 
 
 class SkippedOut(BaseModel):
+    instrument_id: int
     ticker: str
     reason: str
 
@@ -43,6 +45,14 @@ class ZoneScanResponse(BaseModel):
     params: ZoneParamsOut
     matches: list[ZoneOut]
     skipped: list[SkippedOut]
+    # Watchlist instruments that are outside the active-market universe
+    # (e.g. delisted/inactive) -- present in neither matches nor skipped.
+    dropped: list[int]
     evaluated: int
     cached: bool
     elapsed_ms: int
+
+
+class ZoneProtocolParseResponse(BaseModel):
+    found: dict[str, float]
+    not_found: list[str]

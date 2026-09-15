@@ -27,6 +27,7 @@ from app.services.zone_classifier import ZoneParams, classify_zone, classify_zon
 
 @dataclass(frozen=True)
 class ZoneResult:
+    instrument_id: int
     ticker: str
     zone: str
     zone_label: str
@@ -41,9 +42,9 @@ class ZoneResult:
     reason: str
 
 
-def _insufficient_data(ticker: str, reason: str) -> ZoneResult:
+def _insufficient_data(instrument_id: int, ticker: str, reason: str) -> ZoneResult:
     return ZoneResult(
-        ticker=ticker, zone="Insufficient Data", zone_label="Insufficient Data",
+        instrument_id=instrument_id, ticker=ticker, zone="Insufficient Data", zone_label="Insufficient Data",
         rsi=None, price=None, macro_sma=None, fast_ema=None, slow_ema=None,
         atr_band_lower=None, atr_band_upper=None, rvol=None, reason=reason,
     )
@@ -61,7 +62,7 @@ def get_zone_for_instrument(db: Session, instrument_id: int, params: ZoneParams)
     # all become non-NaN at exactly `window` bars. See app/services/indicators.py.
     needed = max(params.macro_sma_period, params.slow_ema_period, params.atr_period, params.rvol_period, params.rsi_period + 1)
     if len(history) < needed:
-        return _insufficient_data(instrument.symbol, f"needs {needed} bars of history, has {len(history)}")
+        return _insufficient_data(instrument.id, instrument.symbol, f"needs {needed} bars of history, has {len(history)}")
 
     price = history["adjusted_close"].astype(float)
     macro_sma_s = sma(price, params.macro_sma_period)
@@ -81,7 +82,7 @@ def get_zone_for_instrument(db: Session, instrument_id: int, params: ZoneParams)
         "volume": volume.iloc[-1], "volume_sma": vol_sma_s.iloc[-1],
     }
     if any(pd.isna(v) for v in latest.values()):
-        return _insufficient_data(instrument.symbol, "latest bar has NaN indicator values")
+        return _insufficient_data(instrument.id, instrument.symbol, "latest bar has NaN indicator values")
 
     zone, zone_label, reason = classify_zone(
         latest["rsi"], latest["price"], latest["macro_sma"], latest["fast_ema"], latest["slow_ema"], params,
@@ -91,7 +92,7 @@ def get_zone_for_instrument(db: Session, instrument_id: int, params: ZoneParams)
     atr_band_upper = latest["slow_ema"] + params.atr_limit_multiplier * latest["atr"] if zone == "B" else None
 
     return ZoneResult(
-        ticker=instrument.symbol, zone=zone, zone_label=zone_label,
+        instrument_id=instrument.id, ticker=instrument.symbol, zone=zone, zone_label=zone_label,
         rsi=latest["rsi"], price=latest["price"], macro_sma=latest["macro_sma"],
         fast_ema=latest["fast_ema"], slow_ema=latest["slow_ema"],
         atr_band_lower=atr_band_lower, atr_band_upper=atr_band_upper, rvol=rvol, reason=reason,
@@ -106,6 +107,10 @@ class ScanResult:
     evaluated: int
     cached: bool
     elapsed_ms: int
+    # Instrument ids requested via instrument_ids that are in neither matches
+    # nor skipped -- i.e. not part of the active-market universe at all
+    # (inactive/delisted). Empty for an unscoped (whole-market) scan.
+    dropped: list[int] = dataclasses.field(default_factory=list)
 
 
 def _connect():
@@ -140,7 +145,13 @@ def _load_wide_market(cutoff: date) -> dict[str, pd.DataFrame]:
     return frames
 
 
-@lru_cache(maxsize=4)
+# maxsize=1, not more: each entry is the whole active market pivoted to
+# bars x instruments, so this cache is the app's single largest memory
+# consumer and it lives in every gunicorn worker. `as_of` is the same for
+# all users on a given trading day, so one entry still serves the common
+# case (everyone on default params); a parameter sweep now costs a re-query
+# instead of pinning several hundred MB on a 512MB instance.
+@lru_cache(maxsize=1)
 def _load_wide_cached(n_bars: int, as_of: date) -> dict[str, pd.DataFrame]:
     cutoff, _ = resolve_window(n_bars)
     return _load_wide_market(cutoff)
@@ -177,7 +188,11 @@ def _scan_cached(params: ZoneParams, as_of: date) -> ScanResult:
     ready_mask = required.notna().all(axis=1)
 
     skipped = [
-        {"ticker": symbols.get(iid, str(iid)), "reason": "insufficient history or NaN indicator value"}
+        {
+            "instrument_id": iid,
+            "ticker": symbols.get(iid, str(iid)),
+            "reason": "insufficient history or NaN indicator value",
+        }
         for iid in required.index[~ready_mask]
     ]
 
@@ -197,7 +212,7 @@ def _scan_cached(params: ZoneParams, as_of: date) -> ScanResult:
         atr_band_lower = latest_macro_sma[iid] - 0.5 * atr_val if zone == "A" else None
         atr_band_upper = latest_slow_ema[iid] + params.atr_limit_multiplier * atr_val if zone == "B" else None
         matches.append(ZoneResult(
-            ticker=symbols.get(iid, str(iid)), zone=zone, zone_label=zone_label,
+            instrument_id=iid, ticker=symbols.get(iid, str(iid)), zone=zone, zone_label=zone_label,
             rsi=latest_rsi[iid], price=latest_price[iid], macro_sma=latest_macro_sma[iid],
             fast_ema=latest_fast_ema[iid], slow_ema=latest_slow_ema[iid],
             atr_band_lower=atr_band_lower, atr_band_upper=atr_band_upper, rvol=rvol, reason=reason,
@@ -210,13 +225,19 @@ def _scan_cached(params: ZoneParams, as_of: date) -> ScanResult:
     return ScanResult(as_of=as_of, matches=matches, skipped=skipped, evaluated=total_active, cached=False, elapsed_ms=elapsed_ms)
 
 
-def run_zone_scan(db: Session, params: ZoneParams) -> ScanResult:
+def run_zone_scan(db: Session, params: ZoneParams, instrument_ids: frozenset[int] | None = None) -> ScanResult:
     """`lru_cache` doesn't expose "was this specific key already cached" via
     cache_info() (only aggregate hit/miss counts across all keys) -- and a
     cache-hit result is the exact same frozen ScanResult object from when it
     was first computed, with cached=False still baked into it. Comparing the
     hit counter before/after this one call is what tells us which case we're
     in, so we can override cached=True on the returned object after the fact.
+
+    `instrument_ids`, when given, scopes the result to one watchlist. The
+    underlying whole-market computation stays on its (params, as_of) cache
+    key regardless -- it's the same scan for every watchlist and every user,
+    so filtering happens after the cached call rather than threading the
+    watchlist into the cache key and recomputing per watchlist.
     """
     as_of = latest_trade_date(db)
     if as_of is None:
@@ -225,4 +246,15 @@ def run_zone_scan(db: Session, params: ZoneParams) -> ScanResult:
     hits_before = _scan_cached.cache_info().hits
     result = _scan_cached(params, as_of)
     was_cache_hit = _scan_cached.cache_info().hits > hits_before
-    return dataclasses.replace(result, cached=was_cache_hit) if was_cache_hit else result
+    result = dataclasses.replace(result, cached=was_cache_hit) if was_cache_hit else result
+
+    if instrument_ids is None:
+        return result
+
+    matches = [m for m in result.matches if m.instrument_id in instrument_ids]
+    skipped = [s for s in result.skipped if s["instrument_id"] in instrument_ids]
+    accounted_ids = {m.instrument_id for m in matches} | {s["instrument_id"] for s in skipped}
+    dropped = sorted(instrument_ids - accounted_ids)
+    return dataclasses.replace(
+        result, matches=matches, skipped=skipped, dropped=dropped, evaluated=len(matches) + len(skipped)
+    )

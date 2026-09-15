@@ -1,7 +1,10 @@
-import { fmtNum } from '../lib/format'
+import { useState } from 'react'
+import { apiFetch, ApiError } from '../lib/api'
+import { ErrorText, fmtNum } from '../lib/format'
 import { usePageHeader } from '../lib/pageHeader'
+import { useToast } from '../lib/toast'
 import { useFetch } from '../lib/useFetch'
-import type { StatusDetailOut } from '../lib/types'
+import type { DownloadOut, Page, StatusDetailOut, TriggerPipelineOut } from '../lib/types'
 
 function ago(iso: string | null): string {
   if (!iso) return 'never'
@@ -28,7 +31,7 @@ function FreshnessCard({ status }: { status: StatusDetailOut }) {
   const bg = ok ? 'var(--color-pos-bg)' : 'var(--color-warn-bg)'
   const text = ok ? 'var(--color-pos-text)' : 'var(--color-warn-text)'
   return (
-    <div style={{ border: `1px solid ${border}`, background: bg, color: text, padding: '16px 18px', marginBottom: 20 }}>
+    <div style={{ border: `1px solid ${border}`, borderRadius: 20, background: bg, color: text, padding: '18px 20px', marginBottom: 20 }}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
         {ok ? 'Data is current' : 'Data is stale'}
       </div>
@@ -41,14 +44,47 @@ function FreshnessCard({ status }: { status: StatusDetailOut }) {
 
 export function StatusPage() {
   usePageHeader('System Status', 'Admin-only: pipeline health, data freshness, and job history')
-  const { data: status, loading, error } = useFetch<StatusDetailOut>('/api/status/detail')
+  const { data: status, loading, error, reload } = useFetch<StatusDetailOut>('/api/status/detail')
+  const { data: downloads, reload: reloadDownloads } = useFetch<Page<DownloadOut>>('/api/status/downloads?limit=30')
+  const toast = useToast()
+  const [triggering, setTriggering] = useState(false)
 
-  if (loading) return <p>Loading…</p>
-  if (error) return <p style={{ color: 'var(--color-neg-text)' }}>{error}</p>
+  async function runNow() {
+    if (triggering) return
+    setTriggering(true)
+    try {
+      await apiFetch<TriggerPipelineOut>('/api/status/run-now', { method: 'POST' })
+      toast('Pipeline triggered — check back in a few minutes')
+      reload()
+      reloadDownloads()
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'failed to trigger pipeline')
+    } finally {
+      setTriggering(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div style={{ maxWidth: 900, display: 'grid', gap: 12 }} aria-busy="true" aria-label="Loading system status">
+        <div className="skeleton" style={{ height: 70 }} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+          {[0, 1, 2, 3, 4, 5].map((i) => <div key={i} className="skeleton" style={{ height: 82 }} />)}
+        </div>
+        <div className="skeleton" style={{ height: 240 }} />
+      </div>
+    )
+  }
+  if (error) return <ErrorText>{error}</ErrorText>
   if (!status) return null
 
   return (
     <div style={{ maxWidth: 900 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <button type="button" className="btn btn-secondary" onClick={runNow} disabled={triggering}>
+          {triggering ? 'Triggering…' : 'Run pipeline now'}
+        </button>
+      </div>
       <FreshnessCard status={status} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 24 }}>
@@ -89,9 +125,8 @@ export function StatusPage() {
         </div>
       </div>
 
-      <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 13, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--color-neutral-600)', marginBottom: 8 }}>
-        Last 10 job runs
-      </div>
+      <h2 className="section-label">Last 10 job runs</h2>
+      <div className="table-scroll">
       <table className="table">
         <thead>
           <tr>
@@ -107,7 +142,7 @@ export function StatusPage() {
             <tr key={i}>
               <td>{r.job_name}</td>
               <td>
-                <span className="tag" style={{ background: r.status === 'success' ? 'var(--color-pos-bg)' : r.status === 'failed' ? 'var(--color-neg-bg)' : 'var(--color-neutral-100)', color: r.status === 'success' ? 'var(--color-pos-text)' : r.status === 'failed' ? 'var(--color-neg-text)' : 'var(--color-neutral-800)' }}>
+                <span className="tag" style={{ background: r.status === 'success' ? 'var(--color-pos-bg)' : r.status === 'failed' ? 'var(--color-neg-bg)' : 'var(--color-neutral-100)', color: r.status === 'success' ? 'var(--color-pos-text)' : r.status === 'failed' ? 'var(--color-neg-text)' : 'var(--color-neutral-800)' }} title={r.error_message ?? undefined}>
                   {r.status}
                 </span>
               </td>
@@ -123,6 +158,42 @@ export function StatusPage() {
           )}
         </tbody>
       </table>
+      </div>
+
+      <h2 className="section-label" style={{ marginTop: 24 }}>Recent downloads</h2>
+      <div className="table-scroll">
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Exchange</th>
+            <th>Trade date</th>
+            <th>Status</th>
+            <th>Rows</th>
+            <th>Started</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(downloads?.items ?? []).map((d, i) => (
+            <tr key={i}>
+              <td>{d.exchange}</td>
+              <td>{d.trade_date}</td>
+              <td>
+                <span className="tag" style={{ background: d.status === 'success' ? 'var(--color-pos-bg)' : d.status === 'failed' ? 'var(--color-neg-bg)' : 'var(--color-neutral-100)', color: d.status === 'success' ? 'var(--color-pos-text)' : d.status === 'failed' ? 'var(--color-neg-text)' : 'var(--color-neutral-800)' }} title={d.error_message ?? undefined}>
+                  {d.status}
+                </span>
+              </td>
+              <td>{d.rows_processed ?? '—'}</td>
+              <td>{new Date(d.started_at).toLocaleString('en-IN')}</td>
+            </tr>
+          ))}
+          {(downloads?.items.length ?? 0) === 0 && (
+            <tr>
+              <td colSpan={5} style={{ color: 'var(--color-neutral-600)' }}>No downloads recorded yet.</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+      </div>
     </div>
   )
 }

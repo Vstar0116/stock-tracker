@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session
 from app.db.session import engine
 from app.jobs import healthcheck
 from app.jobs.daily_pipeline import PIPELINE_JOB_NAME
+from app.jobs.ingest_sector_classification import JOB_NAME as SECTOR_JOB_NAME
+from app.jobs.seed_bsgarp_fundamentals import JOB_NAME as FUNDAMENTALS_JOB_NAME
 from app.models import JobRun
 
 
@@ -53,24 +55,41 @@ def alerts(monkeypatch):
 FAR_FUTURE_NOW = datetime(2099, 1, 1, tzinfo=timezone.utc)
 
 
-def _job_run(db, started_at, status="success"):
-    db.add(JobRun(job_name=PIPELINE_JOB_NAME, run_date=started_at.date(), status=status, started_at=started_at, finished_at=started_at))
+def _job_run(db, started_at, job_name=PIPELINE_JOB_NAME, status="success"):
+    db.add(JobRun(job_name=job_name, run_date=started_at.date(), status=status, started_at=started_at, finished_at=started_at))
     db.flush()
 
 
+# healthcheck.run() now checks three jobs every call -- these two helpers
+# seed "definitely fine" rows for whichever jobs a test isn't exercising, so
+# a test aimed at one check isn't polluted by the other two also alerting
+# because they have no rows at all relative to FAR_FUTURE_NOW.
+def _fresh_manual_jobs(db):
+    _job_run(db, FAR_FUTURE_NOW - timedelta(days=1), job_name=FUNDAMENTALS_JOB_NAME)
+    _job_run(db, FAR_FUTURE_NOW - timedelta(days=1), job_name=SECTOR_JOB_NAME)
+
+
+def _fresh_pipeline(db):
+    _job_run(db, FAR_FUTURE_NOW - timedelta(hours=1))
+
+
 class TestNeverRun:
-    def test_no_job_runs_row_at_all_alerts(self, db, alerts):
-        # No row seeded relative to FAR_FUTURE_NOW -- whatever real rows
+    def test_no_job_runs_row_at_all_alerts_for_all_three(self, db, alerts):
+        # No rows seeded relative to FAR_FUTURE_NOW -- whatever real rows
         # exist are so far in the past relative to it that this behaves
-        # identically to "never run" from the check's perspective.
+        # identically to "never run" from every check's perspective.
         healthcheck.run(now=FAR_FUTURE_NOW)
-        assert len(alerts) == 1
-        assert alerts[0][1] == "daily_pipeline:stale"
+        assert {fingerprint for _, fingerprint in alerts} == {
+            "daily_pipeline:stale",
+            f"{FUNDAMENTALS_JOB_NAME}:stale",
+            f"{SECTOR_JOB_NAME}:stale",
+        }
 
 
 class TestRecentRun:
     def test_run_within_36h_does_not_alert(self, db, alerts):
         _job_run(db, FAR_FUTURE_NOW - timedelta(hours=20))
+        _fresh_manual_jobs(db)
         healthcheck.run(now=FAR_FUTURE_NOW)
         assert alerts == []
 
@@ -78,6 +97,7 @@ class TestRecentRun:
 class TestStaleRun:
     def test_run_older_than_36h_alerts(self, db, alerts):
         _job_run(db, FAR_FUTURE_NOW - timedelta(hours=40))
+        _fresh_manual_jobs(db)
         healthcheck.run(now=FAR_FUTURE_NOW)
         assert len(alerts) == 1
         assert alerts[0][1] == "daily_pipeline:stale"
@@ -85,8 +105,38 @@ class TestStaleRun:
     def test_uses_the_most_recent_run_not_the_oldest(self, db, alerts):
         _job_run(db, FAR_FUTURE_NOW - timedelta(hours=100))
         _job_run(db, FAR_FUTURE_NOW - timedelta(hours=10))
+        _fresh_manual_jobs(db)
         healthcheck.run(now=FAR_FUTURE_NOW)
         assert alerts == []  # the recent one is what matters
+
+
+class TestManualDataJobsStale:
+    """seed_bsgarp_fundamentals / ingest_sector_classification: no timer of
+    their own, so "stale" only ever means "hasn't been re-run in a long
+    time", not "missed its schedule"."""
+
+    def test_fundamentals_not_refreshed_in_200_days_alerts(self, db, alerts):
+        _fresh_pipeline(db)
+        _job_run(db, FAR_FUTURE_NOW - timedelta(days=1), job_name=SECTOR_JOB_NAME)
+        _job_run(db, FAR_FUTURE_NOW - timedelta(days=201), job_name=FUNDAMENTALS_JOB_NAME)
+        healthcheck.run(now=FAR_FUTURE_NOW)
+        assert len(alerts) == 1
+        assert alerts[0][1] == f"{FUNDAMENTALS_JOB_NAME}:stale"
+
+    def test_fundamentals_refreshed_within_200_days_does_not_alert(self, db, alerts):
+        _fresh_pipeline(db)
+        _job_run(db, FAR_FUTURE_NOW - timedelta(days=1), job_name=SECTOR_JOB_NAME)
+        _job_run(db, FAR_FUTURE_NOW - timedelta(days=199), job_name=FUNDAMENTALS_JOB_NAME)
+        healthcheck.run(now=FAR_FUTURE_NOW)
+        assert alerts == []
+
+    def test_sector_classification_not_refreshed_in_200_days_alerts(self, db, alerts):
+        _fresh_pipeline(db)
+        _job_run(db, FAR_FUTURE_NOW - timedelta(days=1), job_name=FUNDAMENTALS_JOB_NAME)
+        _job_run(db, FAR_FUTURE_NOW - timedelta(days=201), job_name=SECTOR_JOB_NAME)
+        healthcheck.run(now=FAR_FUTURE_NOW)
+        assert len(alerts) == 1
+        assert alerts[0][1] == f"{SECTOR_JOB_NAME}:stale"
 
 
 class TestDbConnectionFailure:

@@ -45,6 +45,7 @@ class InstrumentDetail(InstrumentOut):
     latest_close: float | None
     day_change_abs: float | None
     day_change_pct: float | None
+    tv_symbol: str
 
 
 class PriceOut(BaseModel):

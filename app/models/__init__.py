@@ -1,5 +1,6 @@
 from app.db.base import Base
 from app.models.fundamentals import Fundamental
+from app.models.holding import Holding
 from app.models.instrument import Instrument
 from app.models.jobs import JobRun
 from app.models.login_attempt import LoginAttempt
@@ -14,6 +15,7 @@ __all__ = [
     "CorporateAction",
     "Indicator",
     "Fundamental",
+    "Holding",
     "User",
     "Watchlist",
     "WatchlistItem",

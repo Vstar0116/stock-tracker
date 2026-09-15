@@ -57,6 +57,7 @@ FIELD_COLUMNS: dict[str, tuple[str, str]] = {
     "sma_100": ("ind", "sma_100"),
     "sma_200": ("ind", "sma_200"),
     "ema_20": ("ind", "ema_20"),
+    "ema_21": ("ind", "ema_21"),
     "ema_50": ("ind", "ema_50"),
     "rsi_14": ("ind", "rsi_14"),
     "macd": ("ind", "macd"),
@@ -71,6 +72,11 @@ FIELD_COLUMNS: dict[str, tuple[str, str]] = {
     "roce": ("fund", "roce"),
     "debt_to_equity": ("fund", "debt_to_equity"),
     "market_cap": ("fund", "market_cap"),
+    "peg": ("fund", "peg"),
+    "eps_diluted": ("fund", "eps_diluted"),
+    "eps_growth": ("fund", "eps_growth"),
+    "fcf_per_share": ("fund", "fcf_per_share"),
+    "fcf_conversion": ("fund", "fcf_conversion"),
     "sector": ("inst", "sector"),
     "industry": ("inst", "industry"),
     "exchange": ("inst", "exchange"),
@@ -224,7 +230,17 @@ def compile_screen(rule: ScreenRule, as_of_date: date, prev_date: date | None) -
         ).outerjoin(ind_prev, and_(ind_prev.instrument_id == Instrument.id, ind_prev.trade_date == prev_date))
         prev_map = {"dp": dp_prev, "ind": ind_prev}
 
-    label_cols: dict[str, ColumnElement] = {"sector": Instrument.sector, "close": dp.adjusted_close}
+    # fundamentals_as_of: always present (like sector/close) rather than only
+    # when the rule references a fundamentals field -- lets the UI show a
+    # staleness badge for any match that happens to have fundamentals on
+    # file, regardless of which field triggered the match. NULL when the
+    # instrument has no fundamentals row at all (most of the market --
+    # CLAUDE.md: fundamentals are manual-entry only, not full-market).
+    label_cols: dict[str, ColumnElement] = {
+        "sector": Instrument.sector,
+        "close": dp.adjusted_close,
+        "fundamentals_as_of": fund_sq.c.as_of_date,
+    }
     if dp_prev is not None:
         label_cols["prev_close"] = dp_prev.adjusted_close
     for field in sorted(today_fields):

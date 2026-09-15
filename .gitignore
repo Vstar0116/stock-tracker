@@ -15,3 +15,6 @@ skills-lock.json
 .vscode/
 .idea/
 .DS_Store
+
+# Windows Task Scheduler run logs (deploy/windows/run_daily_pipeline.ps1)
+deploy/windows/logs/

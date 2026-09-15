@@ -58,6 +58,7 @@ export interface InstrumentDetail extends InstrumentOut {
   latest_close: number | null
   day_change_abs: number | null
   day_change_pct: number | null
+  tv_symbol: string
 }
 
 export interface PriceOut {
@@ -154,7 +155,7 @@ export interface AlertOut {
   exchange: string
   trade_date: string
   triggered_at: string
-  snapshot: Record<string, number | null>
+  snapshot: Record<string, number | string | null>
   seen: boolean
 }
 
@@ -173,6 +174,7 @@ export interface JobRunOut {
   finished_at: string | null
   duration_seconds: number | null
   rows_processed: number | null
+  error_message: string | null
 }
 
 export interface StatusDetailOut extends StatusOut {
@@ -183,6 +185,20 @@ export interface StatusDetailOut extends StatusOut {
   recent_job_runs: JobRunOut[]
   nl_screen_configured: boolean
   nl_screen_reachable: boolean
+}
+
+export interface DownloadOut {
+  exchange: 'NSE' | 'BSE'
+  trade_date: string
+  status: string
+  rows_processed: number | null
+  started_at: string
+  finished_at: string | null
+  error_message: string | null
+}
+
+export interface TriggerPipelineOut {
+  triggered: boolean
 }
 
 // Mirrors app/schemas/crossover.py
@@ -229,4 +245,149 @@ export interface ScanResponse {
   params: { fast: number; slow: number; ma_type: MaType; direction: ScanDirection }
   stats: ScanStats
   matches: ScanMatchOut[]
+}
+
+// Mirrors app/schemas/zone.py
+
+export type Zone = 'A' | 'B' | 'C' | 'D' | 'Unclassified' | 'Insufficient Data'
+
+export interface ZoneOut {
+  instrument_id: number
+  ticker: string
+  zone: Zone
+  zone_label: string
+  rsi: number | null
+  price: number | null
+  macro_sma: number | null
+  fast_ema: number | null
+  slow_ema: number | null
+  atr_band_lower: number | null
+  atr_band_upper: number | null
+  rvol: number | null
+  reason: string
+}
+
+export interface ZoneScanResponse {
+  as_of: string
+  matches: ZoneOut[]
+  skipped: { instrument_id: number; ticker: string; reason: string }[]
+  evaluated: number
+  cached: boolean
+  elapsed_ms: number
+}
+
+export interface ZoneProtocolParseResponse {
+  found: Record<string, number>
+  not_found: string[]
+}
+
+export interface MarketMoverOut {
+  symbol: string
+  exchange: string
+  close: number
+  change_pct: number
+}
+
+export interface MarketSnapshotOut {
+  as_of: string
+  instrument_count: number
+  up_count: number
+  down_count: number
+  moved_2pct_count: number
+  golden_cross_count: number
+  volume_breakout_count: number
+  alerts_today: number
+  ticker: MarketMoverOut[]
+  top_movers: MarketMoverOut[]
+  golden_cross: MarketMoverOut[]
+  volume_breakout: MarketMoverOut[]
+}
+
+// Mirrors app/schemas/dashboard.py
+
+export interface DashboardMoverOut {
+  instrument_id: number
+  symbol: string
+  exchange: string
+  sector: string | null
+  close: number
+  change_pct: number
+}
+
+export interface FiredScreenOut {
+  screen_id: number
+  name: string
+  count: number
+}
+
+export interface SectorHeatOut {
+  sector: string
+  change_pct: number
+  count: number
+}
+
+export interface DashboardOut {
+  as_of: string
+  watchlist_count: number
+  instrument_count: number
+  up_count: number
+  down_count: number
+  moved_2pct_count: number
+  golden_cross_count: number
+  volume_breakout_count: number
+  alerts_today: number
+  ticker: MarketMoverOut[]
+  movers: DashboardMoverOut[]
+  fired_screens: FiredScreenOut[]
+  heatmap: SectorHeatOut[]
+}
+
+export interface HoldingRow {
+  id: number
+  instrument_id: number
+  symbol: string
+  exchange: string
+  company_name: string
+  sector: string | null
+  quantity: number
+  avg_cost: number
+  close: number | null
+  market_value: number | null
+  unrealized_pnl: number | null
+  unrealized_pnl_pct: number | null
+  added_at: string
+}
+
+export interface SectorAllocationOut {
+  sector: string
+  market_value: number
+  pct_of_portfolio: number
+}
+
+// Mirrors app/schemas/backtest.py
+
+export interface HorizonStats {
+  horizon_days: number
+  sample_size: number
+  hit_rate_pct: number | null
+  avg_return_pct: number | null
+  median_return_pct: number | null
+  best_return_pct: number | null
+  worst_return_pct: number | null
+}
+
+export interface BacktestResponse {
+  as_of: string | null
+  dates_evaluated: number
+  total_matches: number
+  horizons: HorizonStats[]
+}
+
+export interface PortfolioOut {
+  total_market_value: number
+  total_cost_basis: number
+  total_unrealized_pnl: number
+  total_unrealized_pnl_pct: number | null
+  holdings: HoldingRow[]
+  allocation: SectorAllocationOut[]
 }

@@ -4,8 +4,12 @@ import { AuthProvider, ProtectedRoute } from './lib/auth'
 import { HeaderProvider } from './lib/pageHeader'
 import { ToastProvider } from './lib/toast'
 import { AlertsPage } from './pages/AlertsPage'
+import { AlertWizardPage } from './pages/AlertWizardPage'
 import { CustomScanPage } from './pages/CustomScanPage'
+import { DashboardPage } from './pages/DashboardPage'
+import { LandingPage } from './pages/LandingPage'
 import { LoginPage } from './pages/LoginPage'
+import { PortfolioPage } from './pages/PortfolioPage'
 import { ScreenerPage } from './pages/ScreenerPage'
 import { StatusPage } from './pages/StatusPage'
 import { StockDetailPage } from './pages/StockDetailPage'
@@ -18,6 +22,7 @@ export default function App() {
         <ToastProvider>
           <HeaderProvider>
             <Routes>
+              <Route path="/" element={<LandingPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route
                 element={
@@ -26,15 +31,17 @@ export default function App() {
                   </ProtectedRoute>
                 }
               >
+                <Route path="/dashboard" element={<DashboardPage />} />
                 <Route path="/watchlists" element={<WatchlistsPage />} />
+                <Route path="/portfolio" element={<PortfolioPage />} />
                 <Route path="/screener" element={<ScreenerPage />} />
+                <Route path="/alert-wizard" element={<AlertWizardPage />} />
                 <Route path="/scan" element={<CustomScanPage />} />
                 <Route path="/alerts" element={<AlertsPage />} />
                 <Route path="/status" element={<StatusPage />} />
                 <Route path="/stocks/:id" element={<StockDetailPage />} />
-                <Route path="/" element={<Navigate to="/watchlists" replace />} />
               </Route>
-              <Route path="*" element={<Navigate to="/watchlists" replace />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </HeaderProvider>
         </ToastProvider>

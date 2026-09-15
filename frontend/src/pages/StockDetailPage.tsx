@@ -6,7 +6,7 @@ import { changeVisual, ChangeGlyph, ErrorText, fmtNum, fmtPct, fmtPrice, indianN
 import { IconArrowLeft } from '../lib/icons'
 import { usePageHeader } from '../lib/pageHeader'
 import { useFetch } from '../lib/useFetch'
-import type { CrossoverSeriesOut, InstrumentDetail, Page, PriceOut } from '../lib/types'
+import type { CrossoverSeriesOut, InstrumentDetail, Page, PeerRow, PriceOut } from '../lib/types'
 
 // Per-browser chart preference, not user data -- localStorage is fine here
 // (unlike the auth token, this holds nothing sensitive). Wrapped because
@@ -196,6 +196,126 @@ function NativeChart({ prices }: { prices: PriceOut[] }) {
   )
 }
 
+const PEER_COLUMNS: { key: keyof PeerRow; label: string; decimals?: number; prefix?: string }[] = [
+  { key: 'cmp', label: 'CMP', prefix: '₹' },
+  { key: 'market_cap', label: 'Mkt Cap Cr.', decimals: 0 },
+  { key: 'pe', label: 'P/E' },
+  { key: 'roce', label: 'ROCE %' },
+  { key: 'debt_to_equity', label: 'Debt/Eq' },
+  { key: 'peg', label: 'PEG' },
+  { key: 'eps_diluted', label: 'EPS' },
+  { key: 'eps_growth', label: 'EPS Growth %' },
+  { key: 'fcf_per_share', label: 'FCF/Share' },
+  { key: 'fcf_conversion', label: 'FCF Conv. %' },
+]
+
+function readPeerColumnPref(): Set<string> {
+  try {
+    const raw = localStorage.getItem('peer-columns')
+    return raw ? new Set(JSON.parse(raw)) : new Set(PEER_COLUMNS.map((c) => c.key))
+  } catch {
+    return new Set(PEER_COLUMNS.map((c) => c.key))
+  }
+}
+function writePeerColumnPref(cols: Set<string>) {
+  try {
+    localStorage.setItem('peer-columns', JSON.stringify([...cols]))
+  } catch {
+    // best-effort only
+  }
+}
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
+/** Only renders once the backend has returned peers -- it returns [] whenever
+ *  the instrument has no curated sunrise sector or no fundamentals of its
+ *  own, so most of the market (fundamentals are manual-entry, curated-subset
+ *  only) simply shows nothing here rather than an empty table. */
+function PeerComparisonCard({ instrumentId }: { instrumentId: number }) {
+  const { data: peers } = useFetch<PeerRow[]>(`/api/instruments/${instrumentId}/peers`, [instrumentId])
+  const [visibleCols, setVisibleCols] = useState<Set<string>>(() => readPeerColumnPref())
+  const [editingCols, setEditingCols] = useState(false)
+
+  function toggleCol(key: string) {
+    setVisibleCols((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      writePeerColumnPref(next)
+      return next
+    })
+  }
+
+  if (!peers || peers.length === 0) return null
+
+  const cols = PEER_COLUMNS.filter((c) => visibleCols.has(c.key))
+
+  return (
+    <div className="card" style={{ padding: '20px 22px', marginTop: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+        <div className="card-kicker" style={{ margin: 0 }}>Peer comparison</div>
+        <div style={{ flex: 1 }} />
+        <button type="button" className="btn btn-secondary" style={{ fontSize: 12, padding: '5px 12px' }} onClick={() => setEditingCols((v) => !v)}>
+          {editingCols ? 'Done' : 'Edit columns'}
+        </button>
+      </div>
+      {editingCols && (
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 14, padding: '10px 12px', background: 'var(--color-surface-2)', borderRadius: 8, fontSize: 12.5 }}>
+          {PEER_COLUMNS.map((c) => (
+            <label key={c.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+              <input type="checkbox" checked={visibleCols.has(c.key)} onChange={() => toggleCol(c.key)} />
+              {c.label}
+            </label>
+          ))}
+        </div>
+      )}
+      <div className="table-scroll">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Company</th>
+              {cols.map((c) => <th key={c.key} style={{ textAlign: 'right' }}>{c.label}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {peers.map((p) => (
+              <tr
+                key={p.instrument_id}
+                style={p.instrument_id === instrumentId ? { background: 'var(--color-surface-2)', fontWeight: 600 } : undefined}
+                title={`Fundamentals as of ${p.fundamentals_as_of}`}
+              >
+                <td>{p.symbol}</td>
+                {cols.map((c) => (
+                  <td key={c.key} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {p[c.key] === null ? '—' : `${c.prefix ?? ''}${fmtNum(p[c.key] as number, c.decimals ?? 2)}`}
+                  </td>
+                ))}
+              </tr>
+            ))}
+            <tr style={{ borderTop: '2px solid var(--color-divider)', color: 'var(--color-neutral-600)' }}>
+              <td>Median</td>
+              {cols.map((c) => {
+                const vals = peers.map((p) => p[c.key] as number | null).filter((v): v is number => v !== null)
+                const m = median(vals)
+                return (
+                  <td key={c.key} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {m === null ? '—' : `${c.prefix ?? ''}${fmtNum(m, c.decimals ?? 2)}`}
+                  </td>
+                )
+              })}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 /** Mirrors the real layout rather than showing a spinner, so the page doesn't
  *  reflow under the user once the data lands. */
 function StockDetailSkeleton() {
@@ -380,6 +500,8 @@ export function StockDetailPage() {
           {ind && <p className="text-muted" style={{ fontSize: 11, margin: 0 }}>Indicators as of {ind.trade_date}</p>}
         </div>
       </div>
+
+      <PeerComparisonCard instrumentId={instrumentId} />
     </div>
   )
 }

@@ -2,13 +2,13 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.api.deps import Pagination, get_current_user, pagination
 from app.db.session import get_db
-from app.models import DailyPrice, Indicator, Instrument
+from app.models import DailyPrice, Fundamental, Indicator, Instrument
 from app.schemas.common import Page
-from app.schemas.instrument import IndicatorOut, InstrumentDetail, InstrumentOut, PriceOut
+from app.schemas.instrument import IndicatorOut, InstrumentDetail, InstrumentOut, PeerRow, PriceOut
 
 router = APIRouter(prefix="/api/instruments", tags=["instruments"], dependencies=[Depends(get_current_user)])
 
@@ -127,3 +127,65 @@ def get_instrument_prices(
     total = db.execute(count_stmt).scalar_one()
     rows = db.execute(stmt.order_by(DailyPrice.trade_date).limit(page.limit).offset(page.offset)).scalars().all()
     return Page(items=[PriceOut.model_validate(r) for r in rows], total=total, limit=page.limit, offset=page.offset)
+
+
+@router.get("/{instrument_id}/peers", response_model=list[PeerRow])
+def get_instrument_peers(instrument_id: int, db: Session = Depends(get_db)) -> list[PeerRow]:
+    """Same-sector peers with fundamentals, for the peer comparison table.
+    `sector` here is the curated sunrise-sector grouping (see
+    app/services/sunrise_sectors.py), not NSE's market-wide `industry` --
+    fundamentals only exist for that curated, manually-entered universe, so
+    peers outside it would show every column as null. An instrument with no
+    sector, or no peer with a fundamentals row (including itself), yields []
+    so the frontend section stays hidden rather than rendering an empty table."""
+    instrument = db.get(Instrument, instrument_id)
+    if instrument is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "instrument not found")
+    if instrument.sector is None:
+        return []
+
+    # DISTINCT ON pattern matches _latest_fundamentals_subquery in
+    # app/services/screening.py: one row per instrument, its most recent
+    # fundamentals snapshot.
+    fund_sub = (
+        select(Fundamental)
+        .distinct(Fundamental.instrument_id)
+        .order_by(Fundamental.instrument_id, Fundamental.as_of_date.desc())
+        .subquery("peer_fund")
+    )
+    fund = aliased(Fundamental, fund_sub)
+
+    price_sub = (
+        select(DailyPrice.instrument_id, DailyPrice.adjusted_close)
+        .distinct(DailyPrice.instrument_id)
+        .order_by(DailyPrice.instrument_id, DailyPrice.trade_date.desc())
+        .subquery("peer_price")
+    )
+
+    rows = db.execute(
+        select(Instrument, fund, price_sub.c.adjusted_close)
+        .join(fund, fund.instrument_id == Instrument.id)
+        .outerjoin(price_sub, price_sub.c.instrument_id == Instrument.id)
+        .where(Instrument.sector == instrument.sector)
+        .order_by(Instrument.symbol)
+    ).all()
+
+    return [
+        PeerRow(
+            instrument_id=inst.id,
+            symbol=inst.symbol,
+            company_name=inst.company_name,
+            cmp=float(cmp_) if cmp_ is not None else None,
+            market_cap=float(f.market_cap) if f.market_cap is not None else None,
+            pe=float(f.pe) if f.pe is not None else None,
+            roce=float(f.roce) if f.roce is not None else None,
+            debt_to_equity=float(f.debt_to_equity) if f.debt_to_equity is not None else None,
+            peg=float(f.peg) if f.peg is not None else None,
+            eps_diluted=float(f.eps_diluted) if f.eps_diluted is not None else None,
+            eps_growth=float(f.eps_growth) if f.eps_growth is not None else None,
+            fcf_per_share=float(f.fcf_per_share) if f.fcf_per_share is not None else None,
+            fcf_conversion=float(f.fcf_conversion) if f.fcf_conversion is not None else None,
+            fundamentals_as_of=f.as_of_date,
+        )
+        for inst, f, cmp_ in rows
+    ]

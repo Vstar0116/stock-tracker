@@ -17,7 +17,7 @@ from app import rate_limit
 from app.db.session import engine, get_db
 from app.jobs.compute_indicators import load_price_history, upsert_indicators
 from app.main import app
-from app.models import DailyPrice, Instrument, JobRun, User
+from app.models import DailyPrice, Fundamental, Instrument, JobRun, User
 from app.schemas.screen import parse_screen_definition
 from app.security import create_access_token, hash_password
 from app.services.indicators import compute_all_indicators
@@ -222,6 +222,52 @@ class TestInstruments:
         body = resp.json()
         assert body["total"] == 1
         assert body["items"][0]["close"] == 105.0
+
+    def test_peers_same_sector_with_fundamentals_only(self, db, client, owner, instrument, priced_instrument, today):
+        # instrument/priced_instrument is sector "IT" with a price history --
+        # give it fundamentals so it qualifies as its own peer-list subject.
+        db.add(Fundamental(instrument_id=instrument.id, as_of_date=today, pe=Decimal("20"), roce=Decimal("15"), market_cap=Decimal("1000")))
+
+        same_sector_peer = Instrument(symbol="PEERTEST", exchange="NSE", company_name="Peer Test Co", sector="IT", is_active=True)
+        db.add(same_sector_peer)
+        db.flush()
+        db.add(Fundamental(instrument_id=same_sector_peer.id, as_of_date=today, pe=Decimal("25"), roce=Decimal("18"), market_cap=Decimal("2000")))
+
+        other_sector_peer = Instrument(symbol="AUTOTEST", exchange="NSE", company_name="Auto Test Co", sector="Auto", is_active=True)
+        db.add(other_sector_peer)
+        db.flush()
+        db.add(Fundamental(instrument_id=other_sector_peer.id, as_of_date=today, pe=Decimal("10"), roce=Decimal("12"), market_cap=Decimal("500")))
+
+        no_fundamentals_peer = Instrument(symbol="NOFUNDTEST", exchange="NSE", company_name="No Fund Co", sector="IT", is_active=True)
+        db.add(no_fundamentals_peer)
+        db.flush()
+
+        db.commit()
+
+        resp = client.get(f"/api/instruments/{priced_instrument.id}/peers", headers=_auth(owner))
+        assert resp.status_code == 200
+        body = resp.json()
+        symbols = {row["symbol"] for row in body}
+        assert symbols == {"APITEST", "PEERTEST"}  # excludes other-sector and fundamentals-less peers
+
+        subject = next(row for row in body if row["symbol"] == "APITEST")
+        assert subject["cmp"] == 105.0  # today's close, from priced_instrument's price history
+        assert subject["pe"] == 20.0
+        assert subject["market_cap"] == 1000.0
+
+        peer = next(row for row in body if row["symbol"] == "PEERTEST")
+        assert peer["cmp"] is None  # no price history seeded for this one
+
+    def test_peers_empty_without_sector(self, client, owner, db):
+        no_sector = Instrument(symbol="NOSECTORTEST", exchange="NSE", company_name="No Sector Co", is_active=True)
+        db.add(no_sector)
+        db.flush()
+        resp = client.get(f"/api/instruments/{no_sector.id}/peers", headers=_auth(owner))
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_peers_404_for_unknown_instrument(self, client, owner):
+        assert client.get("/api/instruments/999999999/peers", headers=_auth(owner)).status_code == 404
 
 
 class TestWatchlists:

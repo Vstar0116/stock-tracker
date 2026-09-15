@@ -48,6 +48,23 @@ class InstrumentDetail(InstrumentOut):
     tv_symbol: str
 
 
+class PeerRow(BaseModel):
+    instrument_id: int
+    symbol: str
+    company_name: str
+    cmp: float | None
+    market_cap: float | None
+    pe: float | None
+    roce: float | None
+    debt_to_equity: float | None
+    peg: float | None
+    eps_diluted: float | None
+    eps_growth: float | None
+    fcf_per_share: float | None
+    fcf_conversion: float | None
+    fundamentals_as_of: date
+
+
 class PriceOut(BaseModel):
     trade_date: date
     open: float

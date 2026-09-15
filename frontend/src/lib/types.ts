@@ -61,6 +61,23 @@ export interface InstrumentDetail extends InstrumentOut {
   tv_symbol: string
 }
 
+export interface PeerRow {
+  instrument_id: number
+  symbol: string
+  company_name: string
+  cmp: number | null
+  market_cap: number | null
+  pe: number | null
+  roce: number | null
+  debt_to_equity: number | null
+  peg: number | null
+  eps_diluted: number | null
+  eps_growth: number | null
+  fcf_per_share: number | null
+  fcf_conversion: number | null
+  fundamentals_as_of: string
+}
+
 export interface PriceOut {
   trade_date: string
   open: number

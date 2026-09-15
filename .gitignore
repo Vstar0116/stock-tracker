@@ -9,6 +9,7 @@ venv/
 # Claude Code tooling state -- not part of the application
 .claude/
 .agents/
+.mcp.json
 skills-lock.json
 
 # Editor / OS

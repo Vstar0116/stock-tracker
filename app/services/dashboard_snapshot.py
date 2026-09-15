@@ -25,7 +25,6 @@ from app.db.session import engine
 from app.models import Alert, DailyPrice, Instrument, Screen, Watchlist, WatchlistItem
 from app.schemas.dashboard import DashboardMoverOut, DashboardOut, FiredScreenOut, SectorHeatOut
 from app.services.market_snapshot import build_snapshot
-from app.services.screening import latest_trade_date
 
 TOP_MOVERS_N = 8
 TOP_FIRED_SCREENS_N = 5

@@ -138,7 +138,18 @@ export function DashboardPage() {
   usePageHeader('Dashboard')
   const { data: snap, loading, error } = useFetch<DashboardOut>('/api/dashboard')
 
-  if (loading) return <p>Loading…</p>
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }} aria-busy="true" aria-label="Loading dashboard">
+        <div className="skeleton" style={{ height: 78, borderRadius: 20 }} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 22 }}>
+          <div className="skeleton" style={{ height: 280, borderRadius: 22 }} />
+          <div className="skeleton" style={{ height: 280, borderRadius: 22 }} />
+        </div>
+        <div className="skeleton" style={{ height: 200, borderRadius: 22 }} />
+      </div>
+    )
+  }
   if (error) return <ErrorText>{error}</ErrorText>
   if (!snap) return <Navigate to="/watchlists" replace />
 

@@ -28,7 +28,7 @@ export function LoginPage() {
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--color-bg)' }}>
+    <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center' }}>
       <form onSubmit={handleSubmit} className="card" style={{ width: '100%', maxWidth: 360, padding: 32 }}>
         <h1 style={{ margin: '0 0 22px', fontSize: 20 }}>NSE TRACKER</h1>
 

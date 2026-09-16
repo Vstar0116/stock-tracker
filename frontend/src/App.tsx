@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AppShell } from './components/AppShell'
+import { Scene3D } from './components/Scene3D'
 import { AuthProvider, ProtectedRoute } from './lib/auth'
 import { HeaderProvider } from './lib/pageHeader'
 import { ToastProvider } from './lib/toast'
@@ -21,6 +22,7 @@ export default function App() {
       <AuthProvider>
         <ToastProvider>
           <HeaderProvider>
+            <Scene3D />
             <Routes>
               <Route path="/" element={<LandingPage />} />
               <Route path="/login" element={<LoginPage />} />

@@ -304,7 +304,7 @@ export function LandingPage() {
   if (user) return <Navigate to="/dashboard" replace />
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--color-bg)' }}>
+    <div style={{ minHeight: '100vh' }}>
       <style>{`
         @keyframes ticker-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
         .ticker-rail { animation: ticker-scroll 46s linear infinite; }

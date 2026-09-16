@@ -269,8 +269,8 @@ select.input {
    rounded left edge, no border-right on the sidebar (redesign's "floating
    panel" look). Rounding is dropped below 900px, where the sidebar becomes
    a full-width overlay instead of a side rail. */
-.app-shell { display: flex; height: 100dvh; background: var(--color-bg); color: var(--color-text); font-family: var(--font-body); font-size: 14px; }
-.app-sidebar { width: 244px; flex: none; display: flex; flex-direction: column; gap: 6px; padding: 20px 14px; background: var(--color-bg); }
+.app-shell { display: flex; height: 100dvh; background: transparent; color: var(--color-text); font-family: var(--font-body); font-size: 14px; }
+.app-sidebar { width: 244px; flex: none; display: flex; flex-direction: column; gap: 6px; padding: 20px 14px; background: transparent; }
 .app-body { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; background: var(--color-surface); border-radius: 26px 0 0 26px; margin: 10px 10px 10px 0; }
 .app-header { flex: none; display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-4) 28px; border-bottom: 1px solid var(--color-divider); }
 .app-main { flex: 1; overflow-y: auto; padding: 24px 28px 60px; }
@@ -287,6 +287,9 @@ select.input {
 .nav-item:hover { background: var(--color-surface-2); color: var(--color-text); }
 .nav-item.active { background: var(--color-accent-100); color: var(--color-accent-800); }
 .nav-item .nav-badge { margin-left: auto; background: var(--color-brand); color: #fff; font-size: 11px; font-weight: 600; padding: 1px 7px; min-width: 18px; text-align: center; border-radius: 999px; }
+
+.scene3d-hit-region { position: fixed; right: 32px; bottom: 32px; width: 120px; height: 120px; z-index: 1; pointer-events: auto; touch-action: none; cursor: grab; }
+.scene3d-hit-region:active { cursor: grabbing; }
 
 .palette-trigger {
   display: flex; align-items: center; gap: 9px; width: 100%; background: var(--color-surface); border: 1px solid var(--color-divider);

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { CommandPalette } from './CommandPalette'
 import { ErrorBoundary } from './ErrorBoundary'
+import { LiquidMetalMark } from './LiquidMetalMark'
 import { apiFetch } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { IconActivity, IconBell, IconBriefcase, IconCheckCircle, IconHome, IconList, IconLogout, IconMenu, IconSearch, IconSliders, IconWand, IconWarningTriangle } from '../lib/icons'
@@ -108,9 +109,7 @@ export function AppShell() {
 
       <aside className="app-sidebar">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px 22px' }}>
-          <div style={{ width: 32, height: 32, borderRadius: 11, background: 'var(--color-brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
-            <IconActivity size={17} style={{ color: '#fff' }} />
-          </div>
+          <LiquidMetalMark size={32} />
           <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 18, letterSpacing: '-0.02em' }}>NSE Tracker</span>
         </div>
 

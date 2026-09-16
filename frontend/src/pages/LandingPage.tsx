@@ -1,5 +1,6 @@
 import { Link, Navigate } from 'react-router-dom'
 import { IOSDeviceFrame } from '../components/IOSDeviceFrame'
+import { MarketPulseGradient } from '../components/MarketPulseGradient'
 import { useAuth } from '../lib/auth'
 import { changeVisual, fmtPct, fmtPrice, indianNum } from '../lib/format'
 import type { MarketMoverOut, MarketSnapshotOut } from '../lib/types'
@@ -81,29 +82,32 @@ function LandingContent({ snap }: { snap: MarketSnapshotOut }) {
             Accounts are created by an admin. There is no self-service sign-up, and no order placement anywhere in the product.
           </p>
         </div>
-        <div className="card blueprint" style={{ padding: '30px 32px' }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-neutral-600)', marginBottom: 20 }}>Close of {fmtDate(snap.as_of)}</div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 4 }}>
-            <span style={{ fontFamily: 'var(--font-heading)', fontSize: 50, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1 }}>{snap.golden_cross_count + snap.volume_breakout_count}</span>
-            <span style={{ fontSize: 17, color: 'var(--color-neutral-700)', fontWeight: 500 }}>of {indianNum(snap.instrument_count, 0)} tracked instruments<br />crossed a line today</span>
+        <div className="card blueprint" style={{ padding: '30px 32px', position: 'relative', overflow: 'hidden' }}>
+          <MarketPulseGradient bullish={snap.up_count >= snap.down_count} />
+          <div style={{ position: 'relative', zIndex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-neutral-600)', marginBottom: 20 }}>Close of {fmtDate(snap.as_of)}</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 4 }}>
+              <span style={{ fontFamily: 'var(--font-heading)', fontSize: 50, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1 }}>{snap.golden_cross_count + snap.volume_breakout_count}</span>
+              <span style={{ fontSize: 17, color: 'var(--color-neutral-700)', fontWeight: 500 }}>of {indianNum(snap.instrument_count, 0)} tracked instruments<br />crossed a line today</span>
+            </div>
+            <div style={{ height: 1, background: 'var(--color-divider)', margin: '26px 0 20px' }} />
+            {heroRows.map((r) => {
+              const v = changeVisual(r.change_pct)
+              return (
+                <div key={r.symbol + r.exchange} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '11px 0' }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 13, background: 'var(--color-accent-100)', color: v.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15 }}>{r.symbol.slice(0, 2)}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 16 }}>{r.symbol}</div>
+                    <div style={{ fontSize: 13, color: 'var(--color-neutral-600)' }}>{r.exchange}</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontWeight: 600, fontSize: 16, fontVariantNumeric: 'tabular-nums' }}>{fmtPrice(r.close)}</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: v.color, fontVariantNumeric: 'tabular-nums' }}>{fmtPct(r.change_pct)}</div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
-          <div style={{ height: 1, background: 'var(--color-divider)', margin: '26px 0 20px' }} />
-          {heroRows.map((r) => {
-            const v = changeVisual(r.change_pct)
-            return (
-              <div key={r.symbol + r.exchange} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '11px 0' }}>
-                <div style={{ width: 40, height: 40, borderRadius: 13, background: 'var(--color-accent-100)', color: v.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15 }}>{r.symbol.slice(0, 2)}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 16 }}>{r.symbol}</div>
-                  <div style={{ fontSize: 13, color: 'var(--color-neutral-600)' }}>{r.exchange}</div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontWeight: 600, fontSize: 16, fontVariantNumeric: 'tabular-nums' }}>{fmtPrice(r.close)}</div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: v.color, fontVariantNumeric: 'tabular-nums' }}>{fmtPct(r.change_pct)}</div>
-                </div>
-              </div>
-            )
-          })}
         </div>
       </section>
 

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
+import { LiquidMetalMark } from '../components/LiquidMetalMark'
 import { ErrorText } from '../lib/format'
 
 export function LoginPage() {
@@ -30,7 +31,10 @@ export function LoginPage() {
   return (
     <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center' }}>
       <form onSubmit={handleSubmit} className="card" style={{ width: '100%', maxWidth: 360, padding: 32 }}>
-        <h1 style={{ margin: '0 0 22px', fontSize: 20 }}>NSE TRACKER</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '0 0 22px' }}>
+          <LiquidMetalMark size={30} />
+          <h1 style={{ margin: 0, fontSize: 20 }}>NSE TRACKER</h1>
+        </div>
 
         {expired && !error && (
           <p role="status" style={{ margin: '0 0 14px', padding: '8px 11px', fontSize: 12.5, border: '1px solid var(--color-warn-border)', background: 'var(--color-warn-bg)', color: 'var(--color-warn-text)' }}>

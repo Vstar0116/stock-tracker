@@ -138,7 +138,6 @@ h3 { font-size: 25px; }
 h4 { font-size: 20px; }
 h5 { font-size: 16px; }
 a { color: var(--color-accent-700); text-underline-offset: 3px; }
-a:hover { color: var(--color-accent-900); }
 /* 65%, not 55% -- 55% landed at 3.64:1 on --color-bg, below the 4.5:1 body
    minimum. Same reason the table header below moved from 60% to 65%. */
 .text-muted { color: color-mix(in srgb, var(--color-text) 65%, transparent); }
@@ -177,13 +176,30 @@ a:hover { color: var(--color-accent-900); }
    future theme variant can't invert it into a pale fill white text can't
    sit on. */
 .btn-primary { background: var(--color-brand); color: #fff; border-color: var(--color-brand); }
-.btn-primary:hover { background: var(--color-brand-hover); border-color: var(--color-brand-hover); }
 .btn-primary:active { background: var(--color-brand-active); border-color: var(--color-brand-active); }
-.btn-secondary { border-color: var(--color-divider); }
-.btn-secondary:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
-.btn-ghost { color: var(--color-accent-700); border-color: transparent; padding-inline: var(--space-1); }
-.btn-ghost:hover { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
-.btn-icon { width: 26px; height: 26px; padding: 0; }
+/* Liquid-glass skin for secondary/ghost buttons (most of the app's buttons):
+   translucent + blurred backdrop, a bright top edge standing in for a
+   specular highlight. Primary CTAs and icon buttons stay solid/flat --
+   legibility and precise click targets matter more there than the effect. */
+.btn-secondary {
+  border-color: var(--color-divider);
+  background: color-mix(in srgb, var(--color-surface-2) 55%, transparent);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 14%, transparent), 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+.btn-ghost {
+  color: var(--color-accent-700); border-color: transparent; padding-inline: var(--space-1);
+  background: color-mix(in srgb, var(--color-surface-2) 30%, transparent);
+  backdrop-filter: blur(10px) saturate(160%);
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+}
+.btn-icon {
+  width: 26px; height: 26px; padding: 0;
+  background: color-mix(in srgb, var(--color-surface-2) 45%, transparent);
+  backdrop-filter: blur(10px) saturate(160%);
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+}
 .btn-block { width: 100%; margin-top: var(--space-2); }
 /* Pill radius on every button, per the redesign's rounded language. .btn-icon
    stays square dimensions, so the same rule turns it into a circle. */
@@ -202,7 +218,6 @@ label.field { display: block; cursor: pointer; }
   background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: 12px;
   transition: border-color var(--dur-fast) var(--ease-out);
 }
-.input:hover { border-color: color-mix(in srgb, var(--color-text) 45%, transparent); }
 .input:focus-visible { border-color: var(--color-accent); outline-offset: 0; }
 textarea.input { min-height: 90px; resize: vertical; }
 select.input {
@@ -235,7 +250,6 @@ select.input {
 }
 .table td { padding: var(--space-2); border-bottom: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); }
 .table tbody tr { transition: background var(--dur-fast) var(--ease-out); }
-.table tbody tr:hover { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
 
 /* Every table needs this wrapper: the widest is 8 columns and the shell has
    no horizontal scroll of its own, so without it narrow viewports clip. It
@@ -251,7 +265,6 @@ select.input {
   background: none; border: none; cursor: pointer; padding: var(--space-2);
   transition: color var(--dur-fast) var(--ease-out);
 }
-.table th.sortable > button:hover { color: var(--color-text); }
 .table th.sortable.numeric > button { justify-content: flex-end; }
 .table th.sortable .sort-arrow { opacity: 0.35; }
 .table th.sortable[aria-sort] .sort-arrow { opacity: 1; }
@@ -271,7 +284,16 @@ select.input {
    a full-width overlay instead of a side rail. */
 .app-shell { display: flex; height: 100dvh; background: transparent; color: var(--color-text); font-family: var(--font-body); font-size: 14px; }
 .app-sidebar { width: 244px; flex: none; display: flex; flex-direction: column; gap: 6px; padding: 20px 14px; background: transparent; }
-.app-body { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; background: var(--color-surface); border-radius: 26px 0 0 26px; margin: 10px 10px 10px 0; }
+/* Frosted, not opaque -- lets Scene3D's particle field show through behind
+   the app the same way it does behind the login card. Individual .card /
+   .table-scroll blocks inside stay solid, so data legibility is unaffected. */
+.app-body {
+  flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden;
+  background: color-mix(in srgb, var(--color-surface) 40%, transparent);
+  backdrop-filter: blur(6px) saturate(160%);
+  -webkit-backdrop-filter: blur(6px) saturate(160%);
+  border-radius: 26px 0 0 26px; margin: 10px 10px 10px 0;
+}
 .app-header { flex: none; display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-4) 28px; border-bottom: 1px solid var(--color-divider); }
 .app-main { flex: 1; overflow-y: auto; padding: 24px 28px 60px; }
 .app-nav-toggle { display: none; }
@@ -284,15 +306,24 @@ select.input {
   background: none; color: var(--color-neutral-700);
   transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
-.nav-item:hover { background: var(--color-surface-2); color: var(--color-text); }
-.nav-item.active { background: var(--color-accent-100); color: var(--color-accent-800); }
+.nav-item.active {
+  background: color-mix(in srgb, var(--color-accent-100) 65%, transparent);
+  color: var(--color-accent-800);
+  backdrop-filter: blur(10px) saturate(160%);
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 14%, transparent);
+}
 .nav-item .nav-badge { margin-left: auto; background: var(--color-brand); color: #fff; font-size: 11px; font-weight: 600; padding: 1px 7px; min-width: 18px; text-align: center; border-radius: 999px; }
 
 .scene3d-hit-region { position: fixed; right: 32px; bottom: 32px; width: 120px; height: 120px; z-index: 1; pointer-events: auto; touch-action: none; cursor: grab; }
 .scene3d-hit-region:active { cursor: grabbing; }
 
 .palette-trigger {
-  display: flex; align-items: center; gap: 9px; width: 100%; background: var(--color-surface); border: 1px solid var(--color-divider);
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  background: color-mix(in srgb, var(--color-surface) 60%, transparent);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  border: 1px solid var(--color-divider);
   border-radius: 14px; color: var(--color-neutral-600); font-size: 14px; padding: 10px 12px; margin-bottom: 10px; cursor: pointer; text-align: left;
 }
 .palette-trigger kbd { background: var(--color-surface-2); border-radius: 7px; font-size: 11.5px; font-weight: 600; padding: 3px 7px; color: var(--color-neutral-700); font-family: inherit; }
@@ -380,6 +411,19 @@ select.input {
   .btn-icon { width: 44px; height: 44px; }
   .btn-ghost { min-height: 44px; padding-inline: var(--space-2); }
   .input { min-height: 44px; }
+}
+
+/* Gated so a tap on touch doesn't leave an element visibly "stuck" in its
+   hover color until the next tap lands elsewhere. */
+@media (hover: hover) and (pointer: fine) {
+  a:hover { color: var(--color-accent-900); }
+  .btn-primary:hover { background: var(--color-brand-hover); border-color: var(--color-brand-hover); }
+  .btn-secondary:hover { background: color-mix(in srgb, var(--color-text) 7%, var(--color-surface-2) 55%); }
+  .btn-ghost:hover { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+  .input:hover { border-color: color-mix(in srgb, var(--color-text) 45%, transparent); }
+  .table tbody tr:hover { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
+  .table th.sortable > button:hover { color: var(--color-text); }
+  .nav-item:hover { background: var(--color-surface-2); color: var(--color-text); }
 }
 
 @media (prefers-reduced-motion: reduce) {

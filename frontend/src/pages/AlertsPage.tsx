@@ -39,7 +39,7 @@ function snapshotLine(snapshot: Record<string, number | string | null>): string 
 export function AlertsPage() {
   usePageHeader('Alerts')
   const navigate = useNavigate()
-  const { data, error: alertsError, reload } = useFetch<Page<AlertOut>>('/api/alerts?limit=200')
+  const { data, error: alertsError, loading: alertsLoading, reload } = useFetch<Page<AlertOut>>('/api/alerts?limit=200')
   const { data: screensPage } = useFetch<Page<ScreenOut>>('/api/screens?limit=200')
 
   const toast = useToast()
@@ -148,7 +148,13 @@ export function AlertsPage() {
 
       {alertsError && <ErrorText>Couldn't load alerts: {alertsError}</ErrorText>}
 
-      {!alertsError && filtered.length === 0 && (
+      {alertsLoading && (
+        <div aria-busy="true" aria-label="Loading alerts">
+          {[80, 80, 80].map((h, i) => <div key={i} className="skeleton" style={{ height: h, borderRadius: 20, marginBottom: 10 }} />)}
+        </div>
+      )}
+
+      {!alertsError && !alertsLoading && filtered.length === 0 && (
         <div className="card" style={{ maxWidth: 520, padding: 30 }}>
           <IconBell size={34} strokeWidth={1.3} stroke="var(--color-neutral-500)" style={{ marginBottom: 12 }} />
           <div className="card-title">No alerts match these filters</div>

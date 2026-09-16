@@ -123,7 +123,7 @@ const sortValue = (row: DerivedRow, key: string): unknown => row[key as keyof De
 export function WatchlistsPage() {
   const navigate = useNavigate()
   const toast = useToast()
-  const { data: list, error: listError, reload: reloadList } = useFetch<Page<WatchlistOut>>('/api/watchlists?limit=200')
+  const { data: list, error: listError, loading: listLoading, reload: reloadList } = useFetch<Page<WatchlistOut>>('/api/watchlists?limit=200')
   const [activeId, setActiveId] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
@@ -142,7 +142,7 @@ export function WatchlistsPage() {
   const active = watchlists.find((w) => w.id === activeId) ?? null
   usePageHeader(active ? active.name : 'Watchlists')
 
-  const { data: view, error: viewError, reload: reloadView } = useFetch<Page<WatchlistViewRow>>(
+  const { data: view, error: viewError, loading: viewLoading, reload: reloadView } = useFetch<Page<WatchlistViewRow>>(
     activeId !== null ? `/api/watchlists/${activeId}/view?limit=200` : null,
     [activeId],
   )
@@ -289,13 +289,18 @@ export function WatchlistsPage() {
       </div>
 
       {listError && <ErrorText>Couldn't load your watchlists: {listError}</ErrorText>}
-      {!listError && !active && watchlists.length === 0 && <p className="text-muted" style={{ fontSize: 13 }}>No watchlists yet — create one above.</p>}
+      {!listError && !listLoading && !active && watchlists.length === 0 && <p className="text-muted" style={{ fontSize: 13 }}>No watchlists yet — create one above.</p>}
 
       {active && (
         <>
           <AddInstrument watchlistId={active.id} onAdded={reloadView} />
 
-          {viewError ? (
+          {viewLoading ? (
+            <div aria-busy="true" aria-label={`Loading ${active.name}`}>
+              <div className="skeleton" style={{ height: 36, borderRadius: 12, marginBottom: 10, maxWidth: 360 }} />
+              <div className="skeleton" style={{ height: 220, borderRadius: 16 }} />
+            </div>
+          ) : viewError ? (
             <ErrorText>Couldn't load this watchlist: {viewError}</ErrorText>
           ) : rows.length === 0 ? (
             <div className="card" style={{ maxWidth: 480, padding: 28 }}>

@@ -43,6 +43,7 @@ function ParticleField({
   reducedMotion: boolean
 }) {
   const groupRef = useRef<THREE.Points>(null)
+  const driftRef = useRef(0)
 
   const positions = useMemo(() => {
     const arr = new Float32Array(count * 3)
@@ -54,10 +55,12 @@ function ParticleField({
     return arr
   }, [count])
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     if (reducedMotion || !groupRef.current) return
+    driftRef.current += delta * 0.04
     const { x, y } = pointerRef.current
-    groupRef.current.rotation.y += (x * 0.15 - groupRef.current.rotation.y) * 0.02
+    const targetY = x * 0.15 + driftRef.current
+    groupRef.current.rotation.y += (targetY - groupRef.current.rotation.y) * 0.02
     groupRef.current.rotation.x += (y * 0.1 - groupRef.current.rotation.x) * 0.02
   })
 
@@ -82,14 +85,18 @@ function DraggableMark({
 }) {
   const meshRef = useRef<THREE.Mesh>(null)
 
-  useFrame(({ viewport }) => {
+  useFrame(({ viewport, clock }) => {
     if (!meshRef.current) return
-    meshRef.current.position.set(viewport.width / 2 - 1.4, -viewport.height / 2 + 1.4, 0)
+    const t = reducedMotion ? 0 : clock.elapsedTime
+    const floatX = Math.sin(t * 0.3) * 0.4
+    const floatY = Math.cos(t * 0.4) * 0.3
+    meshRef.current.position.set(viewport.width / 2 - 1.4 + floatX, -viewport.height / 2 + 1.4 + floatY, 0)
     const target = rotationRef.current
     meshRef.current.rotation.x += (target.x - meshRef.current.rotation.x) * 0.15
     meshRef.current.rotation.y += (target.y - meshRef.current.rotation.y) * 0.15
     if (!reducedMotion) {
       meshRef.current.rotation.y += 0.002
+      meshRef.current.rotation.x += Math.sin(t * 0.2) * 0.0015
     }
   })
 

@@ -203,6 +203,8 @@ python -m app.services.alerting
 
 ## Deployment
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for the production Dockerfile, Render
-Blueprint (`render.yaml`), required environment variables, how to create
-users / deploy / roll back, and the backup & disaster-recovery runbook.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for the actual production setup (home
+Fedora server, systemd, Tailscale Funnel), required environment variables,
+and how to create users / deploy / roll back. [DEPLOYMENT.render.md](DEPLOYMENT.render.md)
+is a separate, fully-worked-out Render-based design kept for reference --
+not what's currently running.

@@ -16,23 +16,25 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, Request, status
 from sqlalchemy import delete, func, select
 
+from app.config import settings
 from app.db.session import SessionLocal
 from app.models import LoginAttempt
 
 
 def client_ip(request: Request) -> str:
-    """The real client IP behind Render's reverse proxy. X-Forwarded-For is
-    trusted here ONLY because this app is never reachable except through
-    Render's edge (see DEPLOYMENT.md) -- request.client.host alone would be
-    Render's proxy IP for every request, bucketing all external traffic
-    (attacker and every legitimate user alike) under one shared key. If this
-    ever runs behind a different or additional proxy layer, this needs a
-    trusted-hop-count / allowlist check instead of trusting the header
-    outright."""
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    """The real client IP behind a reverse proxy (Tailscale serve/funnel,
+    nginx, Render's edge, ...). X-Forwarded-For is only trusted when the TCP
+    peer is a configured trusted proxy (settings.trusted_proxy_ip_set,
+    default loopback) -- otherwise request.client.host alone would let
+    anyone who can reach this app directly (e.g. gunicorn bound to 0.0.0.0 on
+    a LAN, bypassing the proxy) set an arbitrary X-Forwarded-For and get a
+    fresh rate-limit bucket on every request."""
+    direct_ip = request.client.host if request.client else "unknown"
+    if direct_ip in settings.trusted_proxy_ip_set:
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    return direct_ip
 
 
 class RateLimiter:

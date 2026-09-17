@@ -53,7 +53,10 @@ def client(db, monkeypatch):
 
     app.dependency_overrides[get_db] = override_get_db
     try:
-        yield TestClient(app)
+        # client=("127.0.0.1", ...) so request.client.host matches the trusted
+        # proxy set (see app/config.py trusted_proxy_ips) -- otherwise
+        # client_ip() would ignore every test's X-Forwarded-For override.
+        yield TestClient(app, client=("127.0.0.1", 123))
     finally:
         app.dependency_overrides.pop(get_db, None)
 

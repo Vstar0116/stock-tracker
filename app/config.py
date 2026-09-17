@@ -55,6 +55,18 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
+    # Comma-separated IPs allowed to set X-Forwarded-For (see app/rate_limit.py
+    # client_ip()). Defaults to loopback only -- correct for a reverse proxy
+    # (Tailscale serve/funnel, nginx, Render's edge) that forwards to this app
+    # over localhost. If the app is ever reachable directly (e.g. gunicorn
+    # bound to 0.0.0.0 on a LAN), a request arriving from any other source IP
+    # is rate-limited on that real IP instead of a spoofable header.
+    trusted_proxy_ips: str = "127.0.0.1,::1"
+
+    @property
+    def trusted_proxy_ip_set(self) -> set[str]:
+        return {ip.strip() for ip in self.trusted_proxy_ips.split(",") if ip.strip()}
+
     # Off-host destination for the scheduled logical backup (app/jobs/backup_db.py)
     # of the tables with no automated re-ingestion source -- see DEPLOYMENT.md
     # "What's genuinely irreplaceable". Any S3-compatible endpoint works: leave

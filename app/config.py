@@ -6,6 +6,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # not silently inside the first login request.
 MIN_JWT_SECRET_KEY_BYTES = 32
 
+DEV_DEFAULT_DATABASE_URL = "postgresql+psycopg2://stock:stock@localhost:5432/stock"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -20,8 +22,11 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 480  # one workday
 
     # Fine to default locally -- docker-compose ships the matching stock/stock
-    # user. Refused below if this is still localhost with APP_ENV=production.
-    database_url: str = "postgresql+psycopg2://stock:stock@localhost:5432/stock"
+    # user. Refused below if this is still the literal default with
+    # APP_ENV=production -- a real single-host deployment (Postgres on the
+    # same box as the app) legitimately also uses "localhost", so the check
+    # is against this exact placeholder value, not "localhost" as such.
+    database_url: str = DEV_DEFAULT_DATABASE_URL
 
     # Natural-language screen translation (POST /api/screens/from-text). Leave
     # unset to disable the feature -- the endpoint 422s with a clear message
@@ -92,13 +97,13 @@ class Settings(BaseSettings):
         return v
 
     @model_validator(mode="after")
-    def _no_localhost_database_in_production(self) -> "Settings":
-        if self.app_env.lower() == "production" and (
-            "localhost" in self.database_url or "127.0.0.1" in self.database_url
-        ):
+    def _no_dev_default_database_in_production(self) -> "Settings":
+        if self.app_env.lower() == "production" and self.database_url == DEV_DEFAULT_DATABASE_URL:
             raise ValueError(
-                "database_url points at localhost but APP_ENV=production -- set DATABASE_URL "
-                "to the real production database before starting"
+                "database_url is still the local dev default but APP_ENV=production -- set "
+                "DATABASE_URL to the real production database before starting (a single-host "
+                "deployment with Postgres on localhost is fine, as long as it isn't this "
+                "literal placeholder connection string)"
             )
         return self
 

@@ -312,6 +312,27 @@ class TestApplyCorporateActionsTiming:
         db.refresh(action_today)
         assert action_today.applied is True
 
+    def test_dividend_action_is_never_selected_or_applied(self, db):
+        """Regression for the missing action_type filter: apply_corporate_action
+        (via adjustment_factor) raises ValueError for anything outside
+        SPLIT/BONUS. A DIVIDEND row with a past ex_date must never reach it,
+        or the whole daily pipeline aborts every night it's pending."""
+        inst = Instrument(symbol="DIVTIMING1", exchange="NSE", company_name="Div Timing Co", is_active=True)
+        db.add(inst)
+        db.flush()
+        dividend = CorporateAction(
+            instrument_id=inst.id, ex_date=self.TODAY, action_type="DIVIDEND",
+            value=Decimal("5.00"), applied=False,
+        )
+        db.add(dividend)
+        db.flush()
+
+        result = daily_pipeline.step_apply_corporate_actions(dry_run=False)
+
+        assert result == "nothing pending"
+        db.refresh(dividend)
+        assert dividend.applied is False
+
 
 class TestDbConnectionFailureAtStartup:
     def test_main_alerts_and_returns_1_when_lock_acquisition_cannot_reach_db(self, monkeypatch, alerts):

@@ -45,6 +45,11 @@ class InstrumentDetail(InstrumentOut):
     latest_close: float | None
     day_change_abs: float | None
     day_change_pct: float | None
+    dividend_yield: float | None
+    cagr_1y: float | None
+    cagr_3y: float | None
+    cagr_5y: float | None
+    cagr_10y: float | None
     tv_symbol: str
 
 
@@ -62,6 +67,13 @@ class PeerRow(BaseModel):
     eps_growth: float | None
     fcf_per_share: float | None
     fcf_conversion: float | None
+    roe: float | None
+    debtor_days: float | None
+    payable_days: float | None
+    inventory_days: float | None
+    cash_conversion_cycle: float | None
+    working_capital_days: float | None
+    dividend_yield: float | None
     fundamentals_as_of: date
 
 

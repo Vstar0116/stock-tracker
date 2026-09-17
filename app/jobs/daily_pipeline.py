@@ -32,7 +32,7 @@ from app.jobs._tracking import track_job_run
 from app.jobs.ingest_prices import IST_OFFSET, most_recent_trading_day
 from app.models import CorporateAction, DailyPrice, JobRun, Screen
 from app.services import alerting
-from app.services.price_adjustment import apply_corporate_action
+from app.services.price_adjustment import ADJUSTABLE_ACTION_TYPES, apply_corporate_action
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("daily_pipeline")
@@ -123,7 +123,15 @@ def step_apply_corporate_actions(dry_run: bool) -> str:
         # this already happened to before this gate existed.
         today_ist = (datetime.now(timezone.utc) + IST_OFFSET).date()
         pending = db.execute(
-            select(CorporateAction).where(CorporateAction.applied.is_(False), CorporateAction.ex_date <= today_ist)
+            select(CorporateAction).where(
+                CorporateAction.applied.is_(False),
+                CorporateAction.ex_date <= today_ist,
+                # Only SPLIT/BONUS carry a ratio adjustment_factor() knows how to
+                # apply -- DIVIDEND rows (see ingest_corporate_actions.py) are
+                # informational only and must never reach apply_corporate_action,
+                # which raises ValueError for any other action_type.
+                CorporateAction.action_type.in_(ADJUSTABLE_ACTION_TYPES),
+            )
         ).scalars().all()
         if dry_run:
             return f"would apply {len(pending)} pending corporate action(s)"

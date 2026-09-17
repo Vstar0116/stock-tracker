@@ -1,4 +1,4 @@
-"""Ingest announced stock splits and bonuses from NSE/BSE into `corporate_actions`.
+"""Ingest announced stock splits, bonuses, and dividends from NSE/BSE into `corporate_actions`.
 
 Sources verified 2026-08-18:
 - NSE: https://www.nseindia.com/api/corporates-corporateActions?index=equities
@@ -14,9 +14,13 @@ Sources verified 2026-08-18:
   Free-text `Purpose` field, e.g. "Bonus issue 2:1" or "Stock  Split From
   Rs.10/- to Rs.1/-".
 
-Only splits and bonuses are ingested (not dividends/rights/etc.) -- those are
-the only two action types price_adjustment.py knows how to turn into a price
-adjustment factor.
+Splits, bonuses, and dividends are ingested; other action types (rights
+issues, buybacks, etc.) are not recognized and are silently skipped. Only
+SPLIT/BONUS carry a ratio price_adjustment.py can turn into a price
+adjustment factor -- DIVIDEND rows carry an amount in `value` instead and are
+informational only (dividend yield), never adjusted into price history.
+daily_pipeline.py's action_type filter (ADJUSTABLE_ACTION_TYPES) is what
+keeps DIVIDEND rows away from apply_corporate_action().
 
 CRITICAL ratio convention (see services/price_adjustment.py for the matching
 factor math) -- get this backwards and prices silently corrupt:
@@ -67,12 +71,17 @@ BSE_ACTIONS_URL = "https://api.bseindia.com/BseIndiaAPI/api/DefaultData/w"
 SPLIT_RE = re.compile(r"R[se]\.?\s*(\d+(?:\.\d+)?)\s*/-.*?\bto\b\s*R[se]\.?\s*(\d+(?:\.\d+)?)\s*/-", re.IGNORECASE)
 # "Bonus 2:1" / "Bonus issue 2:1"
 BONUS_RE = re.compile(r"bonus\D*?(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
+# "Interim Dividend - Rs 5 Per Share" (NSE) / "Dividend - Rs. - 5.0000" (BSE) --
+# both phrase it as "dividend" ... "Rs"/"Re" ... amount, with varying dashes/
+# dots in between. Amount only, no ratio -- doesn't touch adjusted_close.
+DIVIDEND_RE = re.compile(r"dividend.*?R[se]\.?\s*-?\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
 
 
-def _parse_action_text(text: str) -> tuple[str, str, str] | None:
-    """Classify + extract ratio from one announcement's free-text description.
-    Returns (action_type, ratio_from, ratio_to) as strings, or None if this
-    announcement isn't a split/bonus we recognize (e.g. a dividend).
+def _parse_action_text(text: str) -> tuple[str, str, str | None] | None:
+    """Classify + extract ratio/amount from one announcement's free-text
+    description. Returns (action_type, ratio_from, ratio_to) as strings for
+    SPLIT/BONUS, or (action_type, amount, None) for DIVIDEND, or None if this
+    announcement isn't a split/bonus/dividend we recognize.
     """
     if match := SPLIT_RE.search(text):
         old_face, new_face = match.groups()
@@ -82,7 +91,24 @@ def _parse_action_text(text: str) -> tuple[str, str, str] | None:
     if match := BONUS_RE.search(text):
         new_shares, existing_shares = match.groups()
         return "BONUS", new_shares, existing_shares
+    if match := DIVIDEND_RE.search(text):
+        return "DIVIDEND", match.group(1), None
     return None
+
+
+def _action_row(symbol: str, ex_date: date, parsed: tuple[str, str, str | None], raw_description: str | None) -> dict:
+    """Shared by both fetchers: (action_type, ratio_from, ratio_to) for
+    SPLIT/BONUS, (action_type, amount, None) for DIVIDEND -- see
+    _parse_action_text. ratio_from/ratio_to stay unset (not None) for a
+    DIVIDEND row and vice versa, matching load_actions' r.get(...) reads."""
+    action_type, first, second = parsed
+    row = {"symbol": symbol, "ex_date": ex_date, "action_type": action_type, "raw_description": raw_description}
+    if action_type == "DIVIDEND":
+        row["value"] = first
+    else:
+        row["ratio_from"] = first
+        row["ratio_to"] = second
+    return row
 
 
 def fetch_nse_actions(from_date: date, to_date: date) -> list[dict]:
@@ -104,16 +130,13 @@ def fetch_nse_actions(from_date: date, to_date: date) -> list[dict]:
         parsed = _parse_action_text(r.get("subject", ""))
         if parsed is None:
             continue
-        action_type, ratio_from, ratio_to = parsed
         rows.append(
-            {
-                "symbol": r["symbol"],
-                "ex_date": datetime.strptime(r["exDate"], "%d-%b-%Y").date(),
-                "action_type": action_type,
-                "ratio_from": ratio_from,
-                "ratio_to": ratio_to,
-                "raw_description": r.get("subject"),
-            }
+            _action_row(
+                symbol=r["symbol"],
+                ex_date=datetime.strptime(r["exDate"], "%d-%b-%Y").date(),
+                parsed=parsed,
+                raw_description=r.get("subject"),
+            )
         )
     return rows
 
@@ -141,16 +164,13 @@ def fetch_bse_actions(from_date: date, to_date: date) -> list[dict]:
         parsed = _parse_action_text(r.get("Purpose", ""))
         if parsed is None:
             continue
-        action_type, ratio_from, ratio_to = parsed
         rows.append(
-            {
-                "symbol": r["short_name"],
-                "ex_date": datetime.strptime(r["exdate"], "%Y%m%d").date(),
-                "action_type": action_type,
-                "ratio_from": ratio_from,
-                "ratio_to": ratio_to,
-                "raw_description": r.get("Purpose"),
-            }
+            _action_row(
+                symbol=r["short_name"],
+                ex_date=datetime.strptime(r["exdate"], "%Y%m%d").date(),
+                parsed=parsed,
+                raw_description=r.get("Purpose"),
+            )
         )
     return rows
 
@@ -182,8 +202,14 @@ def load_actions(db: Session, exchange: str, rows: list[dict]) -> tuple[int, lis
                 "instrument_id": instrument_id,
                 "ex_date": r["ex_date"],
                 "action_type": r["action_type"],
-                "ratio_from": r["ratio_from"],
-                "ratio_to": r["ratio_to"],
+                # DIVIDEND rows carry "value" (an amount, not a ratio) instead
+                # of ratio_from/ratio_to -- see _action_row(). applied stays
+                # False for DIVIDEND too, but daily_pipeline's action_type
+                # filter (see ADJUSTABLE_ACTION_TYPES) means nothing ever
+                # tries to adjustment_factor() it.
+                "ratio_from": r.get("ratio_from"),
+                "ratio_to": r.get("ratio_to"),
+                "value": r.get("value"),
                 "applied": False,
                 "raw_description": r["raw_description"],
             }

@@ -32,5 +32,40 @@ class Fundamental(Base):
     fcf_conversion: Mapped[Decimal | None] = mapped_column(
         Numeric(9, 4), Computed("fcf_per_share / NULLIF(eps_diluted, 0) * 100", persisted=True)
     )
+    # Quality-ratio raw feed columns -- manual entry same as everything above.
+    # Numeric(20, 4) matches market_cap: aggregate Rs-crore figures, not
+    # per-share values.
+    net_profit: Mapped[Decimal | None] = mapped_column(Numeric(20, 4))
+    equity: Mapped[Decimal | None] = mapped_column(Numeric(20, 4))
+    receivables: Mapped[Decimal | None] = mapped_column(Numeric(20, 4))
+    payables: Mapped[Decimal | None] = mapped_column(Numeric(20, 4))
+    inventory: Mapped[Decimal | None] = mapped_column(Numeric(20, 4))
+    sales: Mapped[Decimal | None] = mapped_column(Numeric(20, 4))
+    cogs: Mapped[Decimal | None] = mapped_column(Numeric(20, 4))
+    # Derived (DB-computed, not entered) -- same fcf_conversion precedent.
+    roe: Mapped[Decimal | None] = mapped_column(Numeric(9, 4), Computed("net_profit / NULLIF(equity, 0) * 100", persisted=True))
+    debtor_days: Mapped[Decimal | None] = mapped_column(
+        Numeric(9, 4), Computed("receivables / NULLIF(sales, 0) * 365", persisted=True)
+    )
+    payable_days: Mapped[Decimal | None] = mapped_column(
+        Numeric(9, 4), Computed("payables / NULLIF(cogs, 0) * 365", persisted=True)
+    )
+    inventory_days: Mapped[Decimal | None] = mapped_column(
+        Numeric(9, 4), Computed("inventory / NULLIF(cogs, 0) * 365", persisted=True)
+    )
+    # Postgres generated columns can't reference other generated columns, so
+    # this repeats the inventory_days/debtor_days/payable_days formulas
+    # inline instead of adding them together.
+    cash_conversion_cycle: Mapped[Decimal | None] = mapped_column(
+        Numeric(9, 4),
+        Computed(
+            "(inventory / NULLIF(cogs, 0) * 365) + (receivables / NULLIF(sales, 0) * 365) "
+            "- (payables / NULLIF(cogs, 0) * 365)",
+            persisted=True,
+        ),
+    )
+    working_capital_days: Mapped[Decimal | None] = mapped_column(
+        Numeric(9, 4), Computed("(receivables + inventory - payables) / NULLIF(sales, 0) * 365", persisted=True)
+    )
     source: Mapped[str | None] = mapped_column(Text)
     entered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

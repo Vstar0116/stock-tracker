@@ -2,11 +2,13 @@ import { useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { TradingViewChart, TV_STUDY_OPTIONS } from '../components/TradingViewChart'
 import { apiFetch, ApiError } from '../lib/api'
+import { downloadCsv } from '../lib/csv'
 import { changeVisual, ChangeGlyph, ErrorText, fmtNum, fmtPct, fmtPrice, indianNum } from '../lib/format'
 import { IconArrowLeft } from '../lib/icons'
 import { usePageHeader } from '../lib/pageHeader'
+import { SortableTh, useSortableRows } from '../lib/sort'
 import { useFetch } from '../lib/useFetch'
-import type { CrossoverSeriesOut, InstrumentDetail, Page, PeerRow, PriceOut } from '../lib/types'
+import type { CrossoverSeriesOut, IndicatorOut, InstrumentDetail, Page, PeerRow, PriceOut } from '../lib/types'
 
 // Per-browser chart preference, not user data -- localStorage is fine here
 // (unlike the auth token, this holds nothing sensitive). Wrapped because
@@ -141,11 +143,11 @@ function CustomCrossoverCard({ instrumentId }: { instrumentId: number }) {
 
 /** Plain SVG line chart drawn from the price history the page already
  *  fetches -- no charting dependency, matches the redesign's "native" chart
- *  mode. Skips a moving-average overlay: the API only serves the latest
- *  SMA/EMA values, not a per-day series, so there's nothing to draw a second
- *  line from. Upgrade to TradingView's studies (already the "embed" mode)
- *  covers that until a per-day indicator series exists. */
-function NativeChart({ prices }: { prices: PriceOut[] }) {
+ *  mode. Overlay lines (SMA 50 / EMA 20) come from our own per-day indicator
+ *  series (GET /instruments/{id}/indicators) -- joined to the price array by
+ *  trade_date rather than assumed to line up index-for-index, since the two
+ *  endpoints can cover slightly different date ranges. */
+function NativeChart({ prices, indicators = [] }: { prices: PriceOut[]; indicators?: IndicatorOut[] }) {
   if (prices.length < 2) {
     return (
       <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-neutral-600)', fontSize: 13 }}>
@@ -157,10 +159,28 @@ function NativeChart({ prices }: { prices: PriceOut[] }) {
   const H = 300
   const PAD = 8
   const closes = prices.map((p) => p.adjusted_close)
-  const min = Math.min(...closes)
-  const max = Math.max(...closes)
-  const span = max - min || 1
   const x = (i: number) => (i / (prices.length - 1)) * W
+
+  const indicatorsByDate = new Map(indicators.map((row) => [row.trade_date, row]))
+  const OVERLAYS: { key: 'sma_50' | 'ema_20'; color: string; label: string }[] = [
+    { key: 'sma_50', color: 'var(--color-neutral-600)', label: 'SMA 50' },
+    { key: 'ema_20', color: 'var(--color-warn-text)', label: 'EMA 20' },
+  ]
+  const overlaySeries = OVERLAYS.map((o) => ({
+    ...o,
+    points: prices
+      .map((p, i) => ({ i, v: indicatorsByDate.get(p.trade_date)?.[o.key] ?? null }))
+      .filter((pt): pt is { i: number; v: number } => pt.v !== null),
+  }))
+
+  // Combined min/max across price *and* whatever overlay values are present
+  // -- an SMA/EMA can sit outside the visible closes' own range (e.g. a fast
+  // EMA riding just above a sharp dip), and clipping it to the price-only
+  // range would silently cut the line off.
+  const allValues = [...closes, ...overlaySeries.flatMap((s) => s.points.map((p) => p.v))]
+  const min = Math.min(...allValues)
+  const max = Math.max(...allValues)
+  const span = max - min || 1
   const y = (v: number) => PAD + (1 - (v - min) / span) * (H - PAD * 2)
   const linePath = closes.map((c, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${y(c).toFixed(1)}`).join(' ')
   const areaPath = `${linePath} L ${x(prices.length - 1).toFixed(1)} ${H} L 0 ${H} Z`
@@ -183,6 +203,13 @@ function NativeChart({ prices }: { prices: PriceOut[] }) {
           <line x1={0} y1={H * 0.9} x2={W} y2={H * 0.9} />
         </g>
         <path d={areaPath} fill="url(#detailFill)" />
+        {overlaySeries.map((s) => s.points.length > 1 && (
+          <path
+            key={s.key}
+            d={s.points.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${x(p.i).toFixed(1)} ${y(p.v).toFixed(1)}`).join(' ')}
+            fill="none" stroke={s.color} strokeWidth={1.6} strokeLinejoin="round" strokeLinecap="round" strokeDasharray="4 3"
+          />
+        ))}
         <path d={linePath} fill="none" stroke="var(--color-accent-700)" strokeWidth={2.4} strokeLinejoin="round" strokeLinecap="round" />
         <circle cx={lastX} cy={lastY} r={5} fill="var(--color-accent-700)" stroke="var(--color-surface)" strokeWidth={3} />
       </svg>
@@ -190,6 +217,11 @@ function NativeChart({ prices }: { prices: PriceOut[] }) {
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
           <span style={{ width: 16, height: 2.5, background: 'var(--color-accent-700)', display: 'block', borderRadius: 2 }} /> Close
         </span>
+        {overlaySeries.map((s) => s.points.length > 1 && (
+          <span key={s.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+            <span style={{ width: 16, height: 2.5, background: s.color, display: 'block', borderRadius: 2 }} /> {s.label}
+          </span>
+        ))}
         <span style={{ marginLeft: 'auto' }}>{prices.length} sessions to {prices[prices.length - 1].trade_date} · adjusted for corporate actions</span>
       </div>
     </div>
@@ -207,6 +239,13 @@ const PEER_COLUMNS: { key: keyof PeerRow; label: string; decimals?: number; pref
   { key: 'eps_growth', label: 'EPS Growth %' },
   { key: 'fcf_per_share', label: 'FCF/Share' },
   { key: 'fcf_conversion', label: 'FCF Conv. %' },
+  { key: 'dividend_yield', label: 'Div. Yield %' },
+  { key: 'roe', label: 'ROE %' },
+  { key: 'debtor_days', label: 'Debtor Days' },
+  { key: 'payable_days', label: 'Payable Days' },
+  { key: 'inventory_days', label: 'Inventory Days' },
+  { key: 'cash_conversion_cycle', label: 'CCC (days)' },
+  { key: 'working_capital_days', label: 'Working Cap. Days' },
 ]
 
 function readPeerColumnPref(): Set<string> {
@@ -251,15 +290,31 @@ function PeerComparisonCard({ instrumentId }: { instrumentId: number }) {
     })
   }
 
+  // Hooks must run unconditionally on every render -- feed `peers ?? []` in
+  // rather than early-returning above this line, or the count of hooks
+  // called changes between the loading render and the loaded one.
+  const { rows: sortedPeers, sort, toggle } = useSortableRows(peers ?? [], (p, key) => p[key as keyof PeerRow])
+
   if (!peers || peers.length === 0) return null
 
   const cols = PEER_COLUMNS.filter((c) => visibleCols.has(c.key))
+
+  function exportPeersCsv() {
+    downloadCsv(
+      `peers-${new Date().toISOString().slice(0, 10)}.csv`,
+      ['Company', ...cols.map((c) => c.label)],
+      sortedPeers.map((p) => [p.symbol, ...cols.map((c) => p[c.key] as number | null)]),
+    )
+  }
 
   return (
     <div className="card" style={{ padding: '20px 22px', marginTop: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
         <div className="card-kicker" style={{ margin: 0 }}>Peer comparison</div>
         <div style={{ flex: 1 }} />
+        <button type="button" className="btn btn-ghost" style={{ fontSize: 12.5, padding: 0 }} onClick={exportPeersCsv}>
+          Export CSV
+        </button>
         <button type="button" className="btn btn-secondary" style={{ fontSize: 12, padding: '5px 12px' }} onClick={() => setEditingCols((v) => !v)}>
           {editingCols ? 'Done' : 'Edit columns'}
         </button>
@@ -278,12 +333,12 @@ function PeerComparisonCard({ instrumentId }: { instrumentId: number }) {
         <table className="table">
           <thead>
             <tr>
-              <th>Company</th>
-              {cols.map((c) => <th key={c.key} style={{ textAlign: 'right' }}>{c.label}</th>)}
+              <SortableTh label="Company" sortKey="symbol" sort={sort} onSort={toggle} />
+              {cols.map((c) => <SortableTh key={c.key} label={c.label} sortKey={c.key} sort={sort} onSort={toggle} numeric />)}
             </tr>
           </thead>
           <tbody>
-            {peers.map((p) => (
+            {sortedPeers.map((p) => (
               <tr
                 key={p.instrument_id}
                 style={p.instrument_id === instrumentId ? { background: 'var(--color-surface-2)', fontWeight: 600 } : undefined}
@@ -297,6 +352,8 @@ function PeerComparisonCard({ instrumentId }: { instrumentId: number }) {
                 ))}
               </tr>
             ))}
+            {/* Median row stays pinned last and unsorted -- it's a summary of
+                the whole set, computed off `peers`, not `sortedPeers`. */}
             <tr style={{ borderTop: '2px solid var(--color-divider)', color: 'var(--color-neutral-600)' }}>
               <td>Median</td>
               {cols.map((c) => {
@@ -373,6 +430,7 @@ export function StockDetailPage() {
   const since = sinceDate.toISOString().slice(0, 10)
   const { data: prices } = useFetch<Page<PriceOut>>(`/api/instruments/${instrumentId}/prices?from=${since}&limit=200`, [instrumentId])
   const recentPrices = prices ? [...prices.items].reverse().slice(0, 15) : []
+  const { data: indicatorSeries } = useFetch<Page<IndicatorOut>>(`/api/instruments/${instrumentId}/indicators?from=${since}&limit=200`, [instrumentId])
 
   if (loading) return <StockDetailSkeleton />
   if (error) return <ErrorText>{error}</ErrorText>
@@ -436,7 +494,7 @@ export function StockDetailPage() {
           </div>
 
           {chartMode === 'native' ? (
-            <NativeChart prices={prices?.items ?? []} />
+            <NativeChart prices={prices?.items ?? []} indicators={indicatorSeries?.items ?? []} />
           ) : (
             <>
               <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
@@ -470,6 +528,16 @@ export function StockDetailPage() {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <IndicatorCard
+            kicker="Returns"
+            rows={[
+              { label: '1yr CAGR', value: fmtPct(instrument.cagr_1y === null ? null : instrument.cagr_1y * 100) },
+              { label: '3yr CAGR', value: fmtPct(instrument.cagr_3y === null ? null : instrument.cagr_3y * 100) },
+              { label: '5yr CAGR', value: fmtPct(instrument.cagr_5y === null ? null : instrument.cagr_5y * 100) },
+              { label: '10yr CAGR', value: fmtPct(instrument.cagr_10y === null ? null : instrument.cagr_10y * 100) },
+              { label: 'Dividend yield (TTM)', value: fmtPct(instrument.dividend_yield) },
+            ]}
+          />
           <IndicatorCard
             kicker="Trend"
             rows={[

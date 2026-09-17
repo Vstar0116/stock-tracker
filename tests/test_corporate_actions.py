@@ -180,10 +180,12 @@ class TestParseActionText:
             ("Stock  Split From Rs.10/- to Rs.2/-", "SPLIT", "2", "10"),
             ("Bonus 2:1", "BONUS", "2", "1"),
             ("Bonus issue 1:10", "BONUS", "1", "10"),
+            ("Interim Dividend - Rs 5 Per Share", "DIVIDEND", "5", None),
+            ("Dividend - Rs. - 5.0000", "DIVIDEND", "5.0000", None),
         ],
     )
     def test_known_announcement_formats(self, text, expected_type, expected_from, expected_to):
         assert _parse_action_text(text) == (expected_type, expected_from, expected_to)
 
-    def test_dividend_is_not_recognized(self):
-        assert _parse_action_text("Interim Dividend - Rs 5 Per Share") is None
+    def test_unrecognized_action_is_none(self):
+        assert _parse_action_text("Rights Issue 1:5 at Rs 100 Per Share") is None

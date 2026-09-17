@@ -58,6 +58,11 @@ export interface InstrumentDetail extends InstrumentOut {
   latest_close: number | null
   day_change_abs: number | null
   day_change_pct: number | null
+  dividend_yield: number | null
+  cagr_1y: number | null
+  cagr_3y: number | null
+  cagr_5y: number | null
+  cagr_10y: number | null
   tv_symbol: string
 }
 
@@ -75,6 +80,13 @@ export interface PeerRow {
   eps_growth: number | null
   fcf_per_share: number | null
   fcf_conversion: number | null
+  roe: number | null
+  debtor_days: number | null
+  payable_days: number | null
+  inventory_days: number | null
+  cash_conversion_cycle: number | null
+  working_capital_days: number | null
+  dividend_yield: number | null
   fundamentals_as_of: string
 }
 

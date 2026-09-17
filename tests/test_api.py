@@ -17,7 +17,7 @@ from app import rate_limit
 from app.db.session import engine, get_db
 from app.jobs.compute_indicators import load_price_history, upsert_indicators
 from app.main import app
-from app.models import DailyPrice, Fundamental, Instrument, JobRun, User
+from app.models import CorporateAction, DailyPrice, Fundamental, Instrument, JobRun, User
 from app.schemas.screen import parse_screen_definition
 from app.security import create_access_token, hash_password
 from app.services.indicators import compute_all_indicators
@@ -268,6 +268,58 @@ class TestInstruments:
 
     def test_peers_404_for_unknown_instrument(self, client, owner):
         assert client.get("/api/instruments/999999999/peers", headers=_auth(owner)).status_code == 404
+
+    def test_indicators_date_range(self, client, owner, priced_instrument, today):
+        resp = client.get(
+            f"/api/instruments/{priced_instrument.id}/indicators",
+            params={"from": today.isoformat(), "to": today.isoformat()},
+            headers=_auth(owner),
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["items"][0]["sma_50"] == 90.0
+
+    def test_indicators_404_for_unknown_instrument(self, client, owner):
+        assert client.get("/api/instruments/999999999/indicators", headers=_auth(owner)).status_code == 404
+
+    def test_detail_includes_dividend_yield(self, db, client, owner, priced_instrument, today):
+        db.add(CorporateAction(
+            instrument_id=priced_instrument.id, ex_date=today, action_type="DIVIDEND",
+            value=Decimal("5.25"), applied=False,
+        ))
+        db.commit()
+
+        resp = client.get(f"/api/instruments/{priced_instrument.id}", headers=_auth(owner))
+        assert resp.status_code == 200
+        body = resp.json()
+        # 5.25 / 105.0 (today's close, see priced_instrument) * 100
+        assert body["dividend_yield"] == pytest.approx(5.0)
+
+    def test_detail_cagr_is_none_with_insufficient_history(self, client, owner, priced_instrument):
+        # priced_instrument only seeds 200 daily bars -- nowhere near the 1yr
+        # (365-day) lookback CAGR needs, so it must come back None, not get
+        # computed over whatever shorter window happens to be available.
+        resp = client.get(f"/api/instruments/{priced_instrument.id}", headers=_auth(owner))
+        assert resp.status_code == 200
+        assert resp.json()["cagr_1y"] is None
+
+    def test_peers_widened_by_industry_when_sector_missing(self, db, client, owner, today):
+        subject = Instrument(symbol="INDSUBJECT", exchange="NSE", company_name="Ind Subject Co", industry="Software", is_active=True)
+        db.add(subject)
+        db.flush()
+        db.add(Fundamental(instrument_id=subject.id, as_of_date=today, pe=Decimal("20")))
+
+        peer = Instrument(symbol="INDPEER", exchange="NSE", company_name="Ind Peer Co", industry="Software", is_active=True)
+        db.add(peer)
+        db.flush()
+        db.add(Fundamental(instrument_id=peer.id, as_of_date=today, pe=Decimal("22")))
+        db.commit()
+
+        resp = client.get(f"/api/instruments/{subject.id}/peers", headers=_auth(owner))
+        assert resp.status_code == 200
+        symbols = {row["symbol"] for row in resp.json()}
+        assert symbols == {"INDSUBJECT", "INDPEER"}  # matched on industry, neither has a sector
 
 
 class TestWatchlists:

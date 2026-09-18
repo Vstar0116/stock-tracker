@@ -1,0 +1,43 @@
+[Unit]
+Description=Stock Tracker API server
+Wants=network-online.target postgresql.service
+After=network-online.target postgresql.service
+
+[Service]
+Type=exec
+
+# Edit these for the deployment host -- see deploy/systemd/stock-daily-pipeline.service
+# for the same convention. WorkingDirectory/ExecStart's venv path and User must
+# match the account that owns /path/to/stock-application.
+User=deploy
+WorkingDirectory=/path/to/stock-application
+EnvironmentFile=/path/to/stock-application/.env
+Environment=WEB_CONCURRENCY=2
+Environment=PORT=8000
+
+# --bind 127.0.0.1: this app is meant to be reached ONLY through a reverse
+# proxy that terminates TLS and sets X-Forwarded-For (Tailscale
+# serve/funnel, nginx, ...) -- see app/config.py's trusted_proxy_ips and
+# app/rate_limit.py's client_ip(). Binding 0.0.0.0 here would also expose
+# the app directly on the LAN, bypassing that proxy (and the header trust
+# boundary it relies on) entirely. If this host's reverse proxy connects
+# from somewhere other than 127.0.0.1 (a different machine on the LAN,
+# say), bind to that interface instead and add its IP to
+# TRUSTED_PROXY_IPS -- never fall back to 0.0.0.0 to solve a reachability
+# problem.
+ExecStart=/path/to/stock-application/.venv/bin/gunicorn app.main:app \
+  -k uvicorn.workers.UvicornWorker \
+  --workers ${WEB_CONCURRENCY} \
+  --bind 127.0.0.1:${PORT} \
+  --timeout 60 \
+  --graceful-timeout 30 \
+  --access-logfile - \
+  --error-logfile -
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

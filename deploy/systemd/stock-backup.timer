@@ -1,0 +1,17 @@
+[Unit]
+Description=Run the Stock Tracker off-host database backup daily
+
+[Timer]
+# 21:30 IST, every day including weekends -- user data (watchlists,
+# holdings, screens, manually-entered fundamentals) can change any day,
+# unlike market data, so this doesn't skip weekends the way
+# stock-daily-pipeline.timer does. Same TimeZone= reasoning as that timer.
+OnCalendar=*-*-* 21:30
+TimeZone=Asia/Kolkata
+
+# If the host was down at 21:30 IST, run once as soon as it's back instead
+# of silently skipping a day's backup.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

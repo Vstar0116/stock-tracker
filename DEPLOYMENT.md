@@ -16,19 +16,15 @@ current.
 ## Topology
 
 ```
-Internet --(Tailscale Funnel, HTTPS)--> tailscaled (Fedora) --> gunicorn :8000 --> Postgres (local)
-                                                                     ^
-LAN (192.168.1.x) -------------------------------------------------+   (also directly reachable --
-                                                                         gunicorn binds 0.0.0.0, see
-                                                                         "Known gaps" below)
-
-Vercel (frontend static build) --(HTTPS, fetch + bearer token)--> Tailscale Funnel URL above
+Internet --(Tailscale Funnel, HTTPS)--> tailscaled (Fedora) --(proxy to 127.0.0.1:8000)--> gunicorn --> Postgres (local)
 ```
+
+gunicorn binds `127.0.0.1:8000` only -- confirmed via `tailscale serve status` that Funnel proxies to exactly that address, so loopback-only binding doesn't break public access and closes off direct LAN reachability (see `deploy/systemd/stock-api.service`'s comment for the reasoning).
 
 - Host alias: `fedora-server` in SSH config, resolves to `192.168.1.7`, user `mrvick`.
 - App root: `/opt/stock-tracker`.
 - Python env: `/opt/stock-tracker/.venv` (created once with `uv sync` or `pip install -e .`; not rebuilt on every deploy unless dependencies actually changed).
-- systemd unit: `stock-api.service` (installed directly on the host -- **not currently checked into `deploy/systemd/`**; see "Known gaps").
+- systemd units: `stock-api.service`, `stock-daily-pipeline.{service,timer}`, `stock-healthcheck.{service,timer}`, `stock-backup.{service,timer}` -- all templated in `deploy/systemd/`, installed directly on the host (see "Scheduling & alerting" and "Backups" below).
 - Public URL: the Tailscale Funnel hostname (`https://<tailnet-name>.<tailnet-id>.ts.net`) -- get the exact value with `tailscale funnel status` on the Fedora box, or from `frontend/.env`'s built value.
 
 ## Required environment variables
@@ -105,25 +101,6 @@ here means gunicorn is now running new code against whatever schema state
   configured) before any deploy that includes a migration, same as you would
   before any other production schema change.
 
-## Known gaps (tracked, not yet fixed)
-
-- **gunicorn binds `0.0.0.0:8000`**, not `127.0.0.1:8000` -- it's reachable
-  directly on the home LAN, not just through Tailscale Funnel. Not currently
-  known to be exploited, but it's a wider attack surface than necessary if
-  Tailscale is meant to be the only path in. Consider binding to loopback
-  only and letting `tailscale serve` be the sole entry point, if LAN access
-  isn't actually needed.
-- **No systemd timer for `app/jobs/backup_db`** exists in `deploy/systemd/`
-  (only `stock-daily-pipeline.timer` and `stock-healthcheck.timer` do) --
-  confirm whether backups are actually scheduled on this host at all, or
-  only ever run manually. If unscheduled, that's the single biggest
-  data-loss risk in this deployment.
-- **`stock-api.service`'s unit file isn't checked into this repo.** Whatever
-  is installed at `/etc/systemd/system/stock-api.service` on the Fedora box
-  is the only copy. Recommend copying it into `deploy/systemd/stock-api.service`
-  (with paths/secrets templated out, same convention as the other two units)
-  so a lost or reimaged host isn't a from-scratch reconstruction.
-
 ## Scheduling & alerting
 
 Same jobs, same cadence as documented in [README.md](README.md)
@@ -134,6 +111,30 @@ Mon-Fri) and `stock-healthcheck.timer` (hourly), installed per README's
 ```bash
 systemctl list-timers 'stock-*'
 ```
+
+## Backups
+
+`deploy/systemd/stock-backup.{service,timer}` runs `app/jobs/backup_db.py`
+daily at 21:30 IST (every day, unlike the pipeline -- user data can change
+on a weekend even if market data doesn't). Install alongside the other
+timers:
+
+```bash
+sudo cp deploy/systemd/stock-backup.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now stock-backup.timer
+```
+
+**This unit will fail every run** (`journalctl -u stock-backup`) until
+`BACKUP_S3_BUCKET`, `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY`
+(and `BACKUP_S3_REGION`/`BACKUP_S3_ENDPOINT_URL` if not using real AWS S3)
+are set in `/opt/stock-tracker/.env` -- `backup_db.run()` deliberately
+refuses to run with nowhere to put the backup rather than silently no-op.
+That's intentional: a failing unit + an alert (if `ALERT_WEBHOOK_URL` is
+set) is a visible prompt to actually provision a bucket, instead of an
+invisible "no backups exist" gap. Get an S3-compatible bucket (AWS S3,
+Cloudflare R2, Backblaze B2, DigitalOcean Spaces all work) and set those
+four variables to make it actually back up.
 
 ## Creating users
 
